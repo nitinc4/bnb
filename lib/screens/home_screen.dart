@@ -6,6 +6,7 @@ import 'categories_screen.dart';
 // Import your API and Models
 import '../api/magento_api.dart';
 import '../models/magento_models.dart';
+import 'category_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -25,7 +26,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    
+
     // 1. Initialize API calls
     final api = MagentoAPI();
     _categoriesFuture = api.fetchCategories();
@@ -35,7 +36,10 @@ class _HomeScreenState extends State<HomeScreen> {
     // Note: We use KeyedSubtree to preserve state when switching tabs
     _pages = [
       KeyedSubtree(key: const ValueKey('homeTab'), child: _buildHomeTab()),
-      const KeyedSubtree(key: ValueKey('categoriesTab'), child: CategoriesScreen()),
+      const KeyedSubtree(
+        key: ValueKey('categoriesTab'),
+        child: CategoriesScreen(),
+      ),
       const KeyedSubtree(key: ValueKey('cartTab'), child: CartScreen()),
       const KeyedSubtree(key: ValueKey('profileTab'), child: ProfileScreen()),
     ];
@@ -69,8 +73,10 @@ class _HomeScreenState extends State<HomeScreen> {
           Stack(
             children: [
               IconButton(
-                icon: const Icon(Icons.shopping_cart_outlined,
-                    color: Color(0xFF00599c)),
+                icon: const Icon(
+                  Icons.shopping_cart_outlined,
+                  color: Color(0xFF00599c),
+                ),
                 onPressed: () {
                   setState(() {
                     _selectedIndex = 2; // Switch to Cart tab
@@ -88,7 +94,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     shape: BoxShape.circle,
                   ),
                   child: const Text(
-                    '3', 
+                    '3',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 10,
@@ -98,7 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ],
-          )
+          ),
         ],
       ),
 
@@ -115,11 +121,17 @@ class _HomeScreenState extends State<HomeScreen> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
           BottomNavigationBarItem(
-              icon: Icon(Icons.category_outlined), label: 'Categories'),
+            icon: Icon(Icons.category_outlined),
+            label: 'Categories',
+          ),
           BottomNavigationBarItem(
-              icon: Icon(Icons.shopping_cart_outlined), label: 'Cart'),
+            icon: Icon(Icons.shopping_cart_outlined),
+            label: 'Cart',
+          ),
           BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline), label: 'Profile'),
+            icon: Icon(Icons.person_outline),
+            label: 'Profile',
+          ),
         ],
       ),
     );
@@ -138,8 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: TextField(
               decoration: InputDecoration(
                 hintText: 'Search for products...',
-                prefixIcon:
-                    const Icon(Icons.search, color: Color(0xFF00599c)),
+                prefixIcon: const Icon(Icons.search, color: Color(0xFF00599c)),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
                   borderSide: BorderSide.none,
@@ -165,7 +176,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
           // --- REAL CATEGORIES LIST ---
           SizedBox(
-            height: 90,
+            height: 170,
             child: FutureBuilder<List<Category>>(
               future: _categoriesFuture,
               builder: (context, snapshot) {
@@ -187,18 +198,22 @@ class _HomeScreenState extends State<HomeScreen> {
                     final cat = categories[index];
                     return InkWell(
                       onTap: () {
-                        // Navigate to specific category, passing the category name or ID
-                         ScaffoldMessenger.of(context).showSnackBar(
-                           SnackBar(content: Text("Selected: ${cat.name}")),
-                         );
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder:
+                                (context) =>
+                                    CategoryDetailScreen(category: cat),
+                          ),
+                        );
                       },
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 10),
                         child: Column(
                           children: [
                             Container(
-                              width: 60,
-                              height: 60,
+                              width: 100,
+                              height: 100,
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 shape: BoxShape.circle,
@@ -211,20 +226,39 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ],
                               ),
                               child: Padding(
-                                padding: const EdgeInsets.all(12.0),
+                                padding: const EdgeInsets.all(20.0),
                                 // Display category image (or placeholder if API returns null/empty)
-                                child: cat.imageUrl != null && cat.imageUrl!.isNotEmpty
-                                    ? Image.network(
-                                        cat.imageUrl!,
-                                        fit: BoxFit.contain,
-                                        errorBuilder: (ctx, _, __) => Image.asset("assets/icons/placeholder.png"),
-                                      )
-                                    : Image.asset("assets/icons/placeholder.png", fit: BoxFit.contain),
+                                child:
+                                    cat.imageUrl != null &&
+                                            cat.imageUrl!.isNotEmpty
+                                        ? Image.network(
+                                          cat.imageUrl!,
+                                          fit: BoxFit.contain,
+                                          errorBuilder:
+                                              (ctx, _, __) => Image.asset(
+                                                "assets/icons/placeholder.png",
+                                              ),
+                                        )
+                                        : Image.asset(
+                                          "assets/icons/placeholder.png",
+                                          fit: BoxFit.contain,
+                                        ),
                               ),
                             ),
-                            const SizedBox(height: 5),
-                            Text(cat.name,
-                                style: const TextStyle(fontSize: 12)),
+                            const SizedBox(height: 15),
+
+                            // FIX: multiline category name
+                            SizedBox(
+                              width: 100,
+                              child: Text(
+                                cat.name,
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                                softWrap: true,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -259,7 +293,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     'See all',
                     style: TextStyle(color: Color(0xFFF54336)),
                   ),
-                )
+                ),
               ],
             ),
           ),
@@ -283,8 +317,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   physics: const NeverScrollableScrollPhysics(),
                   shrinkWrap: true,
                   itemCount: products.length,
-                  gridDelegate:
-                      const SliverGridDelegateWithFixedCrossAxisCount(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 2,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,

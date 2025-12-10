@@ -57,10 +57,9 @@ class Category {
     String name = json['name'] ?? 'Unknown';
     bool isActive = json['is_active'] ?? true;
 
-    // --- IMAGE PARSING LOGIC ---
+    // --- IMAGE PARSING ---
     String? finalImageUrl;
-    
-    // Helper to extract attribute
+
     String getAttribute(String code) {
       if (json['custom_attributes'] == null) return '';
       final attributes = json['custom_attributes'] as List;
@@ -71,18 +70,22 @@ class Category {
       return attr['value']?.toString() ?? '';
     }
 
-    String apiImageValue = getAttribute('image');
+    // 1. Try THUMBNAIL first (Main Categories usually use this)
+    String apiImageValue = getAttribute('thumbnail');
+
+    // 2. Fallback to IMAGE (Subcategories might use this)
+    if (apiImageValue.isEmpty) {
+      apiImageValue = getAttribute('image');
+    }
 
     if (apiImageValue.isNotEmpty) {
       if (apiImageValue.startsWith('http')) {
-        // Full URL
         finalImageUrl = apiImageValue;
       } else if (apiImageValue.startsWith('/media/')) {
-        // Absolute path (e.g., /media/.renditions/...)
-        // Matches your specific case!
+        // Matches: /media/catalog/category/...
         finalImageUrl = "https://buynutbolts.com$apiImageValue";
       } else {
-        // Relative filename fallback
+        // Matches: plain-file.jpg
         finalImageUrl = "https://buynutbolts.com/media/catalog/category/$apiImageValue";
       }
     }

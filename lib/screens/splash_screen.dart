@@ -1,6 +1,6 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'login_screen.dart';
+import '../api/magento_api.dart'; // Import API
+import 'login_screen.dart'; // Or HomeScreen if you skip login
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -9,8 +9,7 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen>
-    with SingleTickerProviderStateMixin {
+class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _animation;
 
@@ -19,19 +18,36 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
 
     _controller = AnimationController(
-      duration: const Duration(seconds: 3),
+      duration: const Duration(seconds: 2), // Faster animation loop
       vsync: this,
-    )..forward();
+    )..repeat(reverse: true); // Loop the fade effect while loading
 
     _animation = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
 
-    // Navigate to login after animation
-    Timer(const Duration(seconds: 4), () {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
-    });
+    // START LOADING REAL DATA
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    final api = MagentoAPI();
+    
+    // Fetch both simultaneously to save time
+    try {
+      print("Splash: Starting data fetch...");
+      await Future.wait([
+        api.fetchCategories(),
+        api.fetchProducts(),
+      ]);
+      print("Splash: Data loaded!");
+    } catch (e) {
+      print("Splash: Error loading data (proceeding anyway): $e");
+    }
+
+    // Navigate only after data is ready
+    if (mounted) {
+      Navigator.pushReplacementNamed(context, '/login'); 
+      // OR if you want to go straight to home: Navigator.pushReplacementNamed(context, '/home');
+    }
   }
 
   @override
@@ -43,63 +59,46 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: AnimatedBuilder(
-        animation: _animation,
-        builder: (context, child) {
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              // Black & White version
-              ColorFiltered(
-                colorFilter: const ColorFilter.matrix([
-                  0.2126, 0.7152, 0.0722, 0, 0,
-                  0.2126, 0.7152, 0.0722, 0, 0,
-                  0.2126, 0.7152, 0.0722, 0, 0,
-                  0, 0, 0, 1, 0,
-                ]),
-                child: Image.asset(
-                  'assets/images/login_bg.png',
-                  fit: BoxFit.cover,
-                ),
-              ),
-
-              // Color version (fades in)
-              Opacity(
-                opacity: _animation.value,
-                child: Image.asset(
-                  'assets/images/login_bg.png',
-                  fit: BoxFit.cover,
-                ),
-              ),
-
-              // Optional loading bar (at bottom)
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 60),
-                  child: Container(
-                    width: 200,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: FractionallySizedBox(
-                      alignment: Alignment.centerLeft,
-                      widthFactor: _animation.value,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF00599c),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Background Image
+          Image.asset(
+            'assets/images/login_bg.png',
+            fit: BoxFit.cover,
+            color: Colors.white.withOpacity(0.9), // Lighten it slightly
+            colorBlendMode: BlendMode.modulate,
+          ),
+          
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Logo or Title
+                FadeTransition(
+                  opacity: _animation,
+                  child: const Text(
+                    "BNB STORE",
+                    style: TextStyle(
+                      fontSize: 32, 
+                      fontWeight: FontWeight.bold, 
+                      color: Color(0xFF00599c),
+                      letterSpacing: 2
                     ),
                   ),
                 ),
-              ),
-            ],
-          );
-        },
+                const SizedBox(height: 30),
+                
+                // Real Loading Indicator
+                const CircularProgressIndicator(
+                  color: Color(0xFF00599c),
+                ),
+                const SizedBox(height: 10),
+                const Text("Loading Catalog...", style: TextStyle(color: Colors.grey)),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
