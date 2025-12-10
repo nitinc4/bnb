@@ -14,8 +14,8 @@ class Product {
   });
 
   factory Product.fromJson(Map<String, dynamic> json) {
-    // Helper to find custom attributes like 'image'
     String getAttribute(String code) {
+      if (json['custom_attributes'] == null) return '';
       final attributes = json['custom_attributes'] as List;
       final attr = attributes.firstWhere(
         (element) => element['attribute_code'] == code,
@@ -24,11 +24,10 @@ class Product {
       return attr['value']?.toString() ?? '';
     }
 
-    String imagePath = getAttribute('image'); // or 'small_image'
-    // Magento API returns relative paths like /w/e/weapon.jpg
+    String imagePath = getAttribute('image');
     String fullImageUrl = imagePath.isNotEmpty
         ? "https://buynutbolts.com/media/catalog/product$imagePath"
-        : "https://buynutbolts.com/media/catalog/product/placeholder.jpg"; // Fallback
+        : "https://buynutbolts.com/media/catalog/product/placeholder.jpg";
 
     return Product(
       name: json['name'] ?? 'Unknown',
@@ -44,25 +43,65 @@ class Category {
   final String name;
   final String? imageUrl;
   final bool isActive;
+  final List<Category> children;
 
   Category({
     required this.id,
     required this.name,
     this.imageUrl,
     required this.isActive,
+    required this.children,
   });
 
   factory Category.fromJson(Map<String, dynamic> json) {
-    // Note: Category images in Magento often require a specific custom attribute or extension to fetch via API cleanly.
-    // For now, we will try to grab standard 'image' custom attribute if available.
+    String name = json['name'] ?? 'Unknown';
+    bool isActive = json['is_active'] ?? true;
+
+    // --- IMAGE PARSING LOGIC ---
+    String? finalImageUrl;
     
-    // Recursive parsing is usually needed for the category tree, 
-    // but here we just map the simple fields.
+    // Helper to extract attribute
+    String getAttribute(String code) {
+      if (json['custom_attributes'] == null) return '';
+      final attributes = json['custom_attributes'] as List;
+      final attr = attributes.firstWhere(
+        (element) => element['attribute_code'] == code,
+        orElse: () => {'value': null},
+      );
+      return attr['value']?.toString() ?? '';
+    }
+
+    String apiImageValue = getAttribute('image');
+
+    if (apiImageValue.isNotEmpty) {
+      if (apiImageValue.startsWith('http')) {
+        // Full URL
+        finalImageUrl = apiImageValue;
+      } else if (apiImageValue.startsWith('/media/')) {
+        // Absolute path (e.g., /media/.renditions/...)
+        // Matches your specific case!
+        finalImageUrl = "https://buynutbolts.com$apiImageValue";
+      } else {
+        // Relative filename fallback
+        finalImageUrl = "https://buynutbolts.com/media/catalog/category/$apiImageValue";
+      }
+    }
+
+    // --- RECURSIVE CHILDREN ---
+    List<Category> childrenList = [];
+    if (json['children_data'] != null) {
+      childrenList = (json['children_data'] as List)
+          .map((childJson) => Category.fromJson(childJson))
+          .where((c) => c.isActive)
+          .toList();
+    }
+
     return Category(
       id: json['id'],
-      name: json['name'],
-      isActive: json['is_active'] ?? true,
-      imageUrl: "https://buynutbolts.com/media/catalog/category/bolt_icon.png", // Placeholder/Logic needed based on your specific attribute
+      name: name,
+      isActive: isActive,
+      imageUrl: finalImageUrl,
+      children: childrenList,
     );
   }
 }

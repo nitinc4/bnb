@@ -217,9 +217,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ? Image.network(
                                         cat.imageUrl!,
                                         fit: BoxFit.contain,
-                                        errorBuilder: (ctx, _, __) => Image.asset("assets/icons/bolt.png"),
+                                        errorBuilder: (ctx, _, __) => Image.asset("assets/icons/placeholder.png"),
                                       )
-                                    : Image.asset("assets/icons/bolt.png", fit: BoxFit.contain),
+                                    : Image.asset("assets/icons/placeholder.png", fit: BoxFit.contain),
                               ),
                             ),
                             const SizedBox(height: 5),
