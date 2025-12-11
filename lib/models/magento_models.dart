@@ -5,17 +5,45 @@ class Product {
   final String sku;
   final double price;
   final String imageUrl;
-  final String description; // Added
+  final String description;
 
   Product({
     required this.name,
     required this.sku,
     required this.price,
     required this.imageUrl,
-    required this.description, // Added
+    required this.description,
   });
 
+  // --- REQUIRED FOR CACHING ---
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'sku': sku,
+      'price': price,
+      'imageUrl': imageUrl,
+      'description': description,
+    };
+  }
+
+  // --- REQUIRED FOR CACHING ---
+  factory Product.fromStorage(Map<String, dynamic> json) {
+    return Product(
+      name: json['name'] ?? '',
+      sku: json['sku'] ?? '',
+      price: (json['price'] as num?)?.toDouble() ?? 0.0,
+      imageUrl: json['imageUrl'] ?? '',
+      description: json['description'] ?? '',
+    );
+  }
+
   factory Product.fromJson(Map<String, dynamic> json) {
+    // 1. Check if loading from cache (Fast)
+    if (json.containsKey('imageUrl') && json.containsKey('description')) {
+      return Product.fromStorage(json);
+    }
+
+    // 2. Normal Magento API Parsing
     String getAttribute(String code) {
       if (json['custom_attributes'] == null) return '';
       final attributes = json['custom_attributes'] as List;
@@ -31,10 +59,8 @@ class Product {
         ? "https://buynutbolts.com/media/catalog/product$imagePath"
         : "https://buynutbolts.com/media/catalog/product/placeholder.jpg";
 
-    // Parse Description
     String desc = getAttribute('description');
     if (desc.isEmpty) desc = getAttribute('short_description');
-    // Simple HTML strip (optional)
     desc = desc.replaceAll(RegExp(r'<[^>]*>'), '');
     if (desc.isEmpty) desc = "No description available.";
 
@@ -63,31 +89,49 @@ class Category {
     required this.children,
   });
 
+  // --- REQUIRED FOR CACHING ---
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'imageUrl': imageUrl,
+      'is_active': isActive,
+      'children_data': children.map((c) => c.toJson()).toList(),
+    };
+  }
+
   factory Category.fromJson(Map<String, dynamic> json) {
     String name = json['name'] ?? 'Unknown';
     bool isActive = json['is_active'] ?? true;
-
     String? finalImageUrl;
-    String getAttribute(String code) {
-      if (json['custom_attributes'] == null) return '';
-      final attributes = json['custom_attributes'] as List;
-      final attr = attributes.firstWhere(
-        (element) => element['attribute_code'] == code,
-        orElse: () => {'value': null},
-      );
-      return attr['value']?.toString() ?? '';
-    }
 
-    String apiImageValue = getAttribute('thumbnail');
-    if (apiImageValue.isEmpty) apiImageValue = getAttribute('image');
+    // A. From Cache
+    if (json.containsKey('imageUrl')) {
+      finalImageUrl = json['imageUrl'];
+    } 
+    // B. From API
+    else {
+      String getAttribute(String code) {
+        if (json['custom_attributes'] == null) return '';
+        final attributes = json['custom_attributes'] as List;
+        final attr = attributes.firstWhere(
+          (element) => element['attribute_code'] == code,
+          orElse: () => {'value': null},
+        );
+        return attr['value']?.toString() ?? '';
+      }
 
-    if (apiImageValue.isNotEmpty) {
-      if (apiImageValue.startsWith('http')) {
-        finalImageUrl = apiImageValue;
-      } else if (apiImageValue.startsWith('/media/')) {
-        finalImageUrl = "https://buynutbolts.com$apiImageValue";
-      } else {
-        finalImageUrl = "https://buynutbolts.com/media/catalog/category/$apiImageValue";
+      String apiImageValue = getAttribute('thumbnail');
+      if (apiImageValue.isEmpty) apiImageValue = getAttribute('image');
+
+      if (apiImageValue.isNotEmpty) {
+        if (apiImageValue.startsWith('http')) {
+          finalImageUrl = apiImageValue;
+        } else if (apiImageValue.startsWith('/media/')) {
+          finalImageUrl = "https://buynutbolts.com$apiImageValue";
+        } else {
+          finalImageUrl = "https://buynutbolts.com/media/catalog/category/$apiImageValue";
+        }
       }
     }
 
