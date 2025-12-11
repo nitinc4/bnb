@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart'; 
 import '../widgets/product_card.dart';
+import '../widgets/app_drawer.dart'; // Import Drawer
+import '../providers/cart_provider.dart'; 
+import '../api/magento_api.dart';
+import '../models/magento_models.dart';
 import 'cart_screen.dart';
 import 'profile_screen.dart';
 import 'categories_screen.dart';
-// Import your API and Models
-import '../api/magento_api.dart';
-import '../models/magento_models.dart';
 import 'category_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -18,28 +20,22 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   late List<Widget> _pages;
-
-  // Futures to hold API data (prevents refetching on every rebuild)
   late Future<List<Category>> _categoriesFuture;
   late Future<List<Product>> _productsFuture;
+
+  // Key for controlling the scaffold
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
     super.initState();
-
-    // 1. Initialize API calls
     final api = MagentoAPI();
     _categoriesFuture = api.fetchCategories();
     _productsFuture = api.fetchProducts();
 
-    // 2. Setup Pages
-    // Note: We use KeyedSubtree to preserve state when switching tabs
     _pages = [
       KeyedSubtree(key: const ValueKey('homeTab'), child: _buildHomeTab()),
-      const KeyedSubtree(
-        key: ValueKey('categoriesTab'),
-        child: CategoriesScreen(),
-      ),
+      const KeyedSubtree(key: ValueKey('categoriesTab'), child: CategoriesScreen()),
       const KeyedSubtree(key: ValueKey('cartTab'), child: CartScreen()),
       const KeyedSubtree(key: ValueKey('profileTab'), child: ProfileScreen()),
     ];
@@ -54,7 +50,12 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: Colors.white,
+
+      // ADD THE DRAWER HERE
+      drawer: const AppDrawer(),
+
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
@@ -65,53 +66,50 @@ class _HomeScreenState extends State<HomeScreen> {
             fontWeight: FontWeight.bold,
           ),
         ),
+
+        // Custom Leading to open Drawer
         leading: IconButton(
           icon: const Icon(Icons.menu, color: Color(0xFF00599c)),
-          onPressed: () {},
+          onPressed: () {
+            _scaffoldKey.currentState?.openDrawer();
+          },
         ),
+
         actions: [
-          Stack(
-            children: [
-              IconButton(
-                icon: const Icon(
-                  Icons.shopping_cart_outlined,
-                  color: Color(0xFF00599c),
+          // REAL-TIME CART BADGE
+          Consumer<CartProvider>(
+            builder: (_, cart, ch) => Stack(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.shopping_cart_outlined, color: Color(0xFF00599c)),
+                  onPressed: () {
+                    setState(() {
+                      _selectedIndex = 2;
+                    });
+                  },
                 ),
-                onPressed: () {
-                  setState(() {
-                    _selectedIndex = 2; // Switch to Cart tab
-                  });
-                },
-              ),
-              // Cart Badge (Static for now, can be connected to Cart Provider later)
-              Positioned(
-                right: 8,
-                top: 8,
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFF54336),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Text(
-                    '3',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
+                if (cart.itemCount > 0)
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFF54336),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        '${cart.itemCount}',
+                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ),
-                ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          )
         ],
       ),
-
-      // Dynamic body
       body: SafeArea(child: _pages[_selectedIndex]),
-
-      // Bottom Navigation Bar
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _selectedIndex,
@@ -120,24 +118,14 @@ class _HomeScreenState extends State<HomeScreen> {
         onTap: _onItemTapped,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.category_outlined),
-            label: 'Categories',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.shopping_cart_outlined),
-            label: 'Cart',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            label: 'Profile',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.category_outlined), label: 'Categories'),
+          BottomNavigationBarItem(icon: Icon(Icons.shopping_cart_outlined), label: 'Cart'),
+          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Profile'),
         ],
       ),
     );
   }
 
-  // ---------------- HOME TAB CONTENT ----------------
   Widget _buildHomeTab() {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -182,11 +170,7 @@ class _HomeScreenState extends State<HomeScreen> {
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
-                } else if (snapshot.hasError) {
-                  // For debugging, you might want to print the error
-                  // print(snapshot.error);
-                  return const Center(child: Text("Error loading categories"));
-                } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                } else if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
                   return const Center(child: Text("No Categories"));
                 }
 
@@ -201,9 +185,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder:
-                                (context) =>
-                                    CategoryDetailScreen(category: cat),
+                            builder: (context) => CategoryDetailScreen(category: cat),
                           ),
                         );
                       },
@@ -227,27 +209,12 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               child: Padding(
                                 padding: const EdgeInsets.all(20.0),
-                                // Display category image (or placeholder if API returns null/empty)
-                                child:
-                                    cat.imageUrl != null &&
-                                            cat.imageUrl!.isNotEmpty
-                                        ? Image.network(
-                                          cat.imageUrl!,
-                                          fit: BoxFit.contain,
-                                          errorBuilder:
-                                              (ctx, _, __) => Image.asset(
-                                                "assets/icons/placeholder.png",
-                                              ),
-                                        )
-                                        : Image.asset(
-                                          "assets/icons/placeholder.png",
-                                          fit: BoxFit.contain,
-                                        ),
+                                child: cat.imageUrl != null
+                                    ? Image.network(cat.imageUrl!, fit: BoxFit.contain)
+                                    : Image.asset("assets/icons/placeholder.png"),
                               ),
                             ),
                             const SizedBox(height: 15),
-
-                            // FIX: multiline category name
                             SizedBox(
                               width: 100,
                               child: Text(
@@ -286,14 +253,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 TextButton(
                   onPressed: () {
                     setState(() {
-                      _selectedIndex = 1; // Go to Categories tab
+                      _selectedIndex = 1;
                     });
                   },
-                  child: const Text(
-                    'See all',
-                    style: TextStyle(color: Color(0xFFF54336)),
-                  ),
-                ),
+                  child: const Text('See all', style: TextStyle(color: Color(0xFFF54336))),
+                )
               ],
             ),
           ),
@@ -306,9 +270,7 @@ class _HomeScreenState extends State<HomeScreen> {
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
-                } else if (snapshot.hasError) {
-                  return const Center(child: Text("Error loading products"));
-                } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                } else if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
                   return const Center(child: Text("No Products Found"));
                 }
 
@@ -327,7 +289,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     final product = products[index];
                     return GestureDetector(
                       onTap: () {
-                        // Pass the actual Product object to the detail screen
+                        // Pass the actual Product object
                         Navigator.pushNamed(
                           context,
                           '/productDetail',
@@ -336,7 +298,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       },
                       child: ProductCard(
                         name: product.name,
-                        price: product.price.toStringAsFixed(2), // Format price
+                        price: product.price.toStringAsFixed(2),
                         imageUrl: product.imageUrl,
                       ),
                     );

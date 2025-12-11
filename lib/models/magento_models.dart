@@ -5,12 +5,14 @@ class Product {
   final String sku;
   final double price;
   final String imageUrl;
+  final String description; // Added
 
   Product({
     required this.name,
     required this.sku,
     required this.price,
     required this.imageUrl,
+    required this.description, // Added
   });
 
   factory Product.fromJson(Map<String, dynamic> json) {
@@ -29,11 +31,19 @@ class Product {
         ? "https://buynutbolts.com/media/catalog/product$imagePath"
         : "https://buynutbolts.com/media/catalog/product/placeholder.jpg";
 
+    // Parse Description
+    String desc = getAttribute('description');
+    if (desc.isEmpty) desc = getAttribute('short_description');
+    // Simple HTML strip (optional)
+    desc = desc.replaceAll(RegExp(r'<[^>]*>'), '');
+    if (desc.isEmpty) desc = "No description available.";
+
     return Product(
       name: json['name'] ?? 'Unknown',
       sku: json['sku'] ?? '',
       price: (json['price'] ?? 0).toDouble(),
       imageUrl: fullImageUrl,
+      description: desc,
     );
   }
 }
@@ -57,9 +67,7 @@ class Category {
     String name = json['name'] ?? 'Unknown';
     bool isActive = json['is_active'] ?? true;
 
-    // --- IMAGE PARSING ---
     String? finalImageUrl;
-
     String getAttribute(String code) {
       if (json['custom_attributes'] == null) return '';
       final attributes = json['custom_attributes'] as List;
@@ -70,27 +78,19 @@ class Category {
       return attr['value']?.toString() ?? '';
     }
 
-    // 1. Try THUMBNAIL first (Main Categories usually use this)
     String apiImageValue = getAttribute('thumbnail');
-
-    // 2. Fallback to IMAGE (Subcategories might use this)
-    if (apiImageValue.isEmpty) {
-      apiImageValue = getAttribute('image');
-    }
+    if (apiImageValue.isEmpty) apiImageValue = getAttribute('image');
 
     if (apiImageValue.isNotEmpty) {
       if (apiImageValue.startsWith('http')) {
         finalImageUrl = apiImageValue;
       } else if (apiImageValue.startsWith('/media/')) {
-        // Matches: /media/catalog/category/...
         finalImageUrl = "https://buynutbolts.com$apiImageValue";
       } else {
-        // Matches: plain-file.jpg
         finalImageUrl = "https://buynutbolts.com/media/catalog/category/$apiImageValue";
       }
     }
 
-    // --- RECURSIVE CHILDREN ---
     List<Category> childrenList = [];
     if (json['children_data'] != null) {
       childrenList = (json['children_data'] as List)
