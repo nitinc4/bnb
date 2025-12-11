@@ -39,16 +39,11 @@ class CartScreen extends StatelessWidget {
                 Navigator.pop(ctx); // Close Dialog
                 // Switch to Profile Tab (Index 3) in HomeScreen
                 // Since we can't easily access the HomeScreen state from here,
-                // we'll push the HomeScreen with the Profile index set.
-                Navigator.pushAndRemoveUntil(
-                  context, 
-                  MaterialPageRoute(builder: (_) => const HomeScreen()), // You might need to update HomeScreen to accept an initial index
-                  (route) => false
-                );
+                // we'll push the HomeScreen with the Profile index set
                 // Note: The cleanest way is if you pass a callback or use a global navigation key, 
                 // but for now re-pushing Home works. 
                 // Better yet, just direct them to the Login Screen directly:
-                // Navigator.pushNamed(context, '/login'); 
+                Navigator.pushNamed(context, '/login'); 
               },
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c)),
               child: const Text("Go to Sign In", style: TextStyle(color: Colors.white)),
