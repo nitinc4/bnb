@@ -15,7 +15,6 @@ class Product {
     required this.description,
   });
 
-  // --- REQUIRED FOR CACHING ---
   Map<String, dynamic> toJson() {
     return {
       'name': name,
@@ -26,7 +25,6 @@ class Product {
     };
   }
 
-  // --- REQUIRED FOR CACHING ---
   factory Product.fromStorage(Map<String, dynamic> json) {
     return Product(
       name: json['name'] ?? '',
@@ -38,12 +36,10 @@ class Product {
   }
 
   factory Product.fromJson(Map<String, dynamic> json) {
-    // 1. Check if loading from cache (Fast)
     if (json.containsKey('imageUrl') && json.containsKey('description')) {
       return Product.fromStorage(json);
     }
 
-    // 2. Normal Magento API Parsing
     String getAttribute(String code) {
       if (json['custom_attributes'] == null) return '';
       final attributes = json['custom_attributes'] as List;
@@ -89,7 +85,6 @@ class Category {
     required this.children,
   });
 
-  // --- REQUIRED FOR CACHING ---
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -105,12 +100,9 @@ class Category {
     bool isActive = json['is_active'] ?? true;
     String? finalImageUrl;
 
-    // A. From Cache
     if (json.containsKey('imageUrl')) {
       finalImageUrl = json['imageUrl'];
-    } 
-    // B. From API
-    else {
+    } else {
       String getAttribute(String code) {
         if (json['custom_attributes'] == null) return '';
         final attributes = json['custom_attributes'] as List;
@@ -149,6 +141,88 @@ class Category {
       isActive: isActive,
       imageUrl: finalImageUrl,
       children: childrenList,
+    );
+  }
+}
+
+// --- ORDER MODELS ---
+
+class OrderItem {
+  final String name;
+  final String sku;
+  final double price;
+  final int qty;
+
+  OrderItem({
+    required this.name,
+    required this.sku,
+    required this.price,
+    required this.qty,
+  });
+
+  factory OrderItem.fromJson(Map<String, dynamic> json) {
+    return OrderItem(
+      name: json['name'] ?? 'Unknown Item',
+      sku: json['sku'] ?? '',
+      price: (json['price'] as num?)?.toDouble() ?? 0.0,
+      qty: (json['qty_ordered'] as num?)?.toInt() ?? 1,
+    );
+  }
+}
+
+class Order {
+  final String incrementId;
+  final String status;
+  final double grandTotal;
+  final String createdAt;
+  final String shippingName;
+  final List<OrderItem> items; // Added
+  final String billingName;    // Added
+
+  Order({
+    required this.incrementId,
+    required this.status,
+    required this.grandTotal,
+    required this.createdAt,
+    required this.shippingName,
+    required this.items,
+    required this.billingName,
+  });
+
+  factory Order.fromJson(Map<String, dynamic> json) {
+    // 1. Shipping Name
+    String sName = "N/A";
+    if (json['extension_attributes'] != null && 
+        json['extension_attributes']['shipping_assignments'] != null) {
+      final assignments = json['extension_attributes']['shipping_assignments'] as List;
+      if (assignments.isNotEmpty) {
+        final addr = assignments[0]['shipping']['address'];
+        sName = "${addr['firstname'] ?? ''} ${addr['lastname'] ?? ''}".trim();
+      }
+    }
+
+    // 2. Billing Name
+    String bName = "N/A";
+    if (json['billing_address'] != null) {
+        bName = "${json['billing_address']['firstname'] ?? ''} ${json['billing_address']['lastname'] ?? ''}".trim();
+    }
+
+    // 3. Items
+    List<OrderItem> orderItems = [];
+    if (json['items'] != null) {
+      orderItems = (json['items'] as List)
+          .map((i) => OrderItem.fromJson(i))
+          .toList();
+    }
+
+    return Order(
+      incrementId: json['increment_id'] ?? 'N/A',
+      status: json['status'] ?? 'unknown',
+      grandTotal: (json['grand_total'] as num?)?.toDouble() ?? 0.0,
+      createdAt: json['created_at'] ?? '',
+      shippingName: sName,
+      billingName: bName,
+      items: orderItems,
     );
   }
 }

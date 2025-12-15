@@ -1,8 +1,18 @@
+// lib/screens/profile_screen.dart
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart'; // Needed for Reorder
 import 'package:shared_preferences/shared_preferences.dart';
 import '../api/magento_api.dart';
+import '../models/magento_models.dart';
+import '../providers/cart_provider.dart'; // Needed for Reorder
+
 import 'login_screen.dart';
 import 'signup_screen.dart';
+import 'orders_screen.dart';
+import 'address_book_screen.dart';
+import 'add_edit_address_screen.dart';
+import 'edit_profile_screen.dart'; // NEW
+import 'order_detail_screen.dart'; // NEW
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -15,36 +25,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoggedIn = false;
   bool _isLoading = true;
   Map<String, dynamic>? _userData;
+  List<Order> _recentOrders = [];
 
   @override
   void initState() {
     super.initState();
-    _checkLoginStatus();
+    _loadAllData();
   }
 
-  Future<void> _checkLoginStatus() async {
+  Future<void> _loadAllData() async {
+    setState(() => _isLoading = true);
+    
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('customer_token');
 
     if (token != null && token.isNotEmpty) {
-      // User is logged in, fetch full details
       final api = MagentoAPI();
-      final data = await api.fetchCustomerDetails(token);
+      final userData = await api.fetchCustomerDetails(token);
+      List<Order> orders = [];
+      if (userData != null && userData['email'] != null) {
+        orders = await api.fetchOrders(userData['email']);
+      }
+
       if (mounted) {
         setState(() {
           _isLoggedIn = true;
-          _userData = data;
+          _userData = userData;
+          _recentOrders = orders;
           _isLoading = false;
         });
       }
     } else {
-      // User is guest
-      if (mounted) {
-        setState(() {
-          _isLoggedIn = false;
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() { _isLoggedIn = false; _isLoading = false; });
     }
   }
 
@@ -52,244 +64,211 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('customer_token');
     await prefs.setBool('has_logged_in', false);
-    await prefs.setBool('is_guest', false); // Reset so splash asks again
+    await prefs.setBool('is_guest', false);
+    if (mounted) Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+  }
+
+  // --- REORDER LOGIC ---
+  Future<void> _reorder(Order order) async {
+    final cart = Provider.of<CartProvider>(context, listen: false);
     
-    if (mounted) {
-      Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+    // We iterate through order items and add them to cart locally
+    // Note: We need full Product objects for the cart provider.
+    // Ideally, we fetch product by SKU to get image/details.
+    
+    int addedCount = 0;
+    for (var item in order.items) {
+      // Basic product object for cart (missing image/desc but works for now)
+      // For better UX, you might want to fetchProductBySku(item.sku) first.
+      final simpleProduct = Product(
+        name: item.name,
+        sku: item.sku,
+        price: item.price,
+        imageUrl: "https://buynutbolts.com/media/catalog/product/placeholder.jpg", // Fallback
+        description: "",
+      );
+      
+      // Add quantity times
+      for(int i=0; i<item.qty; i++) {
+        cart.addToCart(simpleProduct);
+      }
+      addedCount++;
     }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("$addedCount items added to cart")),
+    );
+    // Navigate to Cart
+    Navigator.pushNamed(context, '/cart');
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    if (_isLoading) return const Center(child: CircularProgressIndicator(color: Color(0xFF00599c)));
+    if (!_isLoggedIn) return _buildGuestView();
 
-    // 1. GUEST VIEW
-    if (!_isLoggedIn) {
-      return _buildGuestView();
-    }
-
-    // 2. LOGGED IN VIEW
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        title: const Text(
-          "My Profile",
-          style: TextStyle(color: Color(0xFF00599c), fontWeight: FontWeight.bold),
-        ),
+        title: const Text("My Account", style: TextStyle(color: Color(0xFF00599c), fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Color(0xFF00599c)),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            _buildHeader(),
-            const SizedBox(height: 20),
-            _buildInfoCard(),
-            const SizedBox(height: 20),
-            _buildAddresses(),
-            const SizedBox(height: 30),
-            _buildLogoutButton(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // --- WIDGETS ---
-
-  Widget _buildHeader() {
-    return Column(
-      children: [
-        const CircleAvatar(
-          radius: 50,
-          backgroundColor: Color(0xFF00599c),
-          child: Icon(Icons.person, size: 50, color: Colors.white),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          "${_userData?['firstname'] ?? 'User'} ${_userData?['lastname'] ?? ''}",
-          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
-        Text(
-          _userData?['email'] ?? '',
-          style: const TextStyle(color: Colors.grey, fontSize: 16),
-        ),
-        const SizedBox(height: 8),
-        if (_userData?['created_at'] != null)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade200,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              "Member since: ${_userData!['created_at'].toString().split(' ')[0]}",
-              style: const TextStyle(color: Colors.black54, fontSize: 12),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildInfoCard() {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
+        actions: [
+          IconButton(icon: const Icon(Icons.logout, color: Color(0xFFF54336)), onPressed: _logout),
         ],
       ),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Personal Information",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF00599c),
-            ),
+      body: RefreshIndicator(
+        onRefresh: _loadAllData,
+        color: const Color(0xFF00599c),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSectionTitle("Account Information"),
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _buildInfoBox("Contact Information", [
+                    "${_userData?['firstname'] ?? ''} ${_userData?['lastname'] ?? ''}",
+                    _userData?['email'] ?? '',
+                  ], actions: [
+                    _buildLink("Edit", () async {
+                      final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => EditProfileScreen(
+                        firstName: _userData?['firstname'] ?? '',
+                        lastName: _userData?['lastname'] ?? '',
+                        email: _userData?['email'] ?? '',
+                      )));
+                      if (result == true) _loadAllData();
+                    }),
+                    _buildLink("Change Password", () async {
+                       final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => EditProfileScreen(
+                        firstName: _userData?['firstname'] ?? '',
+                        lastName: _userData?['lastname'] ?? '',
+                        email: _userData?['email'] ?? '',
+                      ))); // Password logic is inside same screen
+                      if (result == true) _loadAllData();
+                    }),
+                  ])),
+                  const SizedBox(width: 12),
+                  Expanded(child: _buildInfoBox("Newsletters", [
+                    "Newsletter settings"
+                  ], actions: [
+                    _buildLink("Edit", () {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Newsletter management coming soon")));
+                    }),
+                  ])),
+                ],
+              ),
+
+              const SizedBox(height: 24),
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  _buildSectionTitle("Address Book"),
+                  _buildLink("Manage Addresses", () async {
+                    await Navigator.push(context, MaterialPageRoute(builder: (_) => AddressBookScreen(addresses: _userData?['addresses'] ?? [], onRefresh: _loadAllData)));
+                  }),
+              ]),
+              const SizedBox(height: 10),
+              Column(children: [
+                  _buildAddressBox("Default Billing Address", _getDefaultAddress(isBilling: true)),
+                  const SizedBox(height: 12),
+                  _buildAddressBox("Default Shipping Address", _getDefaultAddress(isBilling: false)),
+              ]),
+
+              const SizedBox(height: 24),
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  _buildSectionTitle("Recent Orders"),
+                  _buildLink("View All", () => Navigator.push(context, MaterialPageRoute(builder: (_) => OrdersScreen(userEmail: _userData?['email'] ?? '')))),
+              ]),
+              const SizedBox(height: 10),
+              _buildRecentOrdersTable(),
+              const SizedBox(height: 30),
+            ],
           ),
-          const Divider(),
-          _buildRow("First Name", _userData?['firstname']),
-          _buildRow("Last Name", _userData?['lastname']),
-          _buildRow("Email", _userData?['email']),
-          // You can map more fields here if your API returns custom attributes
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildAddresses() {
+  // --- WIDGET HELPERS ---
+  Map<String, dynamic>? _getDefaultAddress({required bool isBilling}) {
     final List addresses = _userData?['addresses'] ?? [];
-    
-    if (addresses.isEmpty) return const SizedBox();
+    if (addresses.isEmpty) return null;
+    try {
+      return addresses.firstWhere((addr) => addr[isBilling ? 'default_billing' : 'default_shipping'] == true);
+    } catch (e) { return null; }
+  }
 
+  Widget _buildSectionTitle(String title) => Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF333333)));
+  
+  Widget _buildLink(String text, VoidCallback onTap) => GestureDetector(onTap: onTap, child: Text(text, style: const TextStyle(color: Color(0xFF00599c), fontWeight: FontWeight.w600, fontSize: 13)));
+
+  Widget _buildInfoBox(String title, List<String> content, {List<Widget>? actions}) {
     return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Saved Addresses",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF00599c),
-            ),
-          ),
-          const Divider(),
-          ...addresses.map((addr) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.location_on_outlined, size: 16, color: Colors.grey),
-                    const SizedBox(width: 5),
-                    Text(
-                      "${addr['firstname']} ${addr['lastname']}",
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(left: 21.0, top: 4),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text((addr['street'] as List).join(", ")),
-                      Text("${addr['city']}, ${addr['region']?['region'] ?? ''} ${addr['postcode']}"),
-                      if (addr['telephone'] != null) Text("Phone: ${addr['telephone']}"),
-                    ],
-                  ),
-                ),
-                if (addr['default_shipping'] == true || addr['default_billing'] == true) 
-                  Padding(
-                    padding: const EdgeInsets.only(left: 21.0, top: 8),
-                    child: Row(
-                      children: [
-                        if (addr['default_shipping'] == true)
-                          _buildTag("Default Shipping", Colors.orange),
-                        const SizedBox(width: 8),
-                        if (addr['default_billing'] == true)
-                          _buildTag("Default Billing", Colors.blue),
-                      ],
-                    ),
-                  ),
-                const Divider(height: 24),
-              ],
-            ),
-          )),
-        ],
-      ),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade200)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          const Divider(height: 20),
+          ...content.map((c) => Text(c, style: const TextStyle(fontSize: 13, color: Colors.black87, height: 1.4))),
+          if (actions != null) ...[const SizedBox(height: 12), Wrap(spacing: 12, children: actions)]
+      ]),
     );
   }
 
-  Widget _buildTag(String text, Color color) {
+  Widget _buildAddressBox(String title, Map<String, dynamic>? address) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withOpacity(0.5)),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
-      ),
+      width: double.infinity, padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade200)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              _buildLink("Edit Address", () async {
+                 if (address != null) {
+                   final res = await Navigator.push(context, MaterialPageRoute(builder: (_) => AddEditAddressScreen(address: address)));
+                   if (res == true) _loadAllData();
+                 }
+              }),
+          ]),
+          const Divider(height: 20),
+          if (address != null) ...[
+            Text("${address['firstname']} ${address['lastname']}", style: const TextStyle(fontWeight: FontWeight.w600)),
+            Text((address['street'] as List).join("\n")),
+            Text("${address['city']}, ${address['postcode']}"),
+            if (address['telephone'] != null) Text("T: ${address['telephone']}", style: const TextStyle(color: Color(0xFF00599c))),
+          ] else const Text("You have not set a default address.", style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
+      ]),
     );
   }
 
-  Widget _buildRow(String label, String? value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(color: Colors.black54)),
-          Text(value ?? "-", style: const TextStyle(fontWeight: FontWeight.w600)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLogoutButton() {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton.icon(
-        onPressed: _logout,
-        icon: const Icon(Icons.logout, color: Colors.white),
-        label: const Text("Logout", style: TextStyle(color: Colors.white, fontSize: 16)),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFFF54336), // Red color
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          elevation: 2,
+  Widget _buildRecentOrdersTable() {
+    if (_recentOrders.isEmpty) {
+      return Container(width: double.infinity, padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade200)), child: const Text("No recent orders.", style: TextStyle(color: Colors.grey)));
+    }
+    return Container(
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade200)),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: DataTable(
+          headingRowColor: MaterialStateProperty.all(Colors.grey.shade50),
+          columns: const [
+            DataColumn(label: Text("Order #")), DataColumn(label: Text("Date")),
+            DataColumn(label: Text("Total")), DataColumn(label: Text("Status")), DataColumn(label: Text("Action")),
+          ],
+          rows: _recentOrders.map((order) {
+            return DataRow(cells: [
+              DataCell(Text(order.incrementId)), DataCell(Text(order.createdAt.split(' ')[0])),
+              DataCell(Text("₹${order.grandTotal.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold))),
+              DataCell(Text(order.status.toUpperCase(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold))),
+              DataCell(Row(children: [
+                  _buildLink("View", () => Navigator.push(context, MaterialPageRoute(builder: (_) => OrderDetailScreen(order: order)))),
+                  const SizedBox(width: 10),
+                  _buildLink("Reorder", () => _reorder(order)),
+              ])),
+            ]);
+          }).toList(),
         ),
       ),
     );
@@ -306,49 +285,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
             children: [
               const Icon(Icons.account_circle_outlined, size: 80, color: Colors.grey),
               const SizedBox(height: 20),
-              const Text(
-                "You are currently a Guest",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
+              const Text("You are currently a Guest", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 10),
-              const Text(
-                "Login to view your profile, manage addresses, and track orders.",
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey),
-              ),
+              const Text("Login to view your profile.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
               const SizedBox(height: 30),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF00599c),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: const Text("Login", style: TextStyle(color: Colors.white, fontSize: 16)),
-                ),
-              ),
+              SizedBox(width: double.infinity, height: 50, child: ElevatedButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen())), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c)), child: const Text("Login", style: TextStyle(color: Colors.white, fontSize: 16)))),
               const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: OutlinedButton(
-                  onPressed: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const SignupScreen()));
-                  },
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Color(0xFF00599c)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: const Text(
-                    "Create Account",
-                    style: TextStyle(color: Color(0xFF00599c), fontSize: 16),
-                  ),
-                ),
-              ),
+              SizedBox(width: double.infinity, height: 50, child: OutlinedButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SignupScreen())), child: const Text("Create Account"))),
             ],
           ),
         ),
