@@ -10,7 +10,9 @@ import 'cart_screen.dart';
 import 'profile_screen.dart';
 import 'categories_screen.dart';
 import 'category_detail_screen.dart';
-import 'search_screen.dart'; // Import SearchScreen
+import 'product_detail_screen.dart';
+import 'search_screen.dart'; 
+import 'all_products_screen.dart'; // Import the new screen
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -127,7 +129,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: () {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen()));
                 },
-                child: AbsorbPointer( // Prevents keyboard from opening here
+                child: AbsorbPointer( 
                   child: TextField(
                     decoration: InputDecoration(
                       hintText: 'Search for products...',
@@ -206,8 +208,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Featured Products', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF00599c))),
+                  
+                  // --- SEE ALL BUTTON FIX ---
                   TextButton(
-                    onPressed: () => setState(() => _selectedIndex = 1),
+                    onPressed: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const AllProductsScreen()));
+                    },
                     child: const Text('See all', style: TextStyle(color: Color(0xFFF54336))),
                   )
                 ],

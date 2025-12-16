@@ -1,18 +1,18 @@
 // lib/screens/profile_screen.dart
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart'; // Needed for Reorder
+import 'package:provider/provider.dart'; 
 import 'package:shared_preferences/shared_preferences.dart';
 import '../api/magento_api.dart';
 import '../models/magento_models.dart';
-import '../providers/cart_provider.dart'; // Needed for Reorder
+import '../providers/cart_provider.dart'; 
 
 import 'login_screen.dart';
 import 'signup_screen.dart';
 import 'orders_screen.dart';
 import 'address_book_screen.dart';
 import 'add_edit_address_screen.dart';
-import 'edit_profile_screen.dart'; // NEW
-import 'order_detail_screen.dart'; // NEW
+import 'edit_profile_screen.dart'; 
+import 'order_detail_screen.dart'; 
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -41,9 +41,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (token != null && token.isNotEmpty) {
       final api = MagentoAPI();
+      
+      // 1. Fetch User Data
       final userData = await api.fetchCustomerDetails(token);
+      
+      // 2. CHECK FOR EXPIRY: If data is null, token is dead.
+      if (userData == null) {
+        _logout(); // Auto-logout if session expired
+        return; 
+      }
+
+      // 3. Fetch Orders if valid
       List<Order> orders = [];
-      if (userData != null && userData['email'] != null) {
+      if (userData['email'] != null) {
         orders = await api.fetchOrders(userData['email']);
       }
 
@@ -65,40 +75,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await prefs.remove('customer_token');
     await prefs.setBool('has_logged_in', false);
     await prefs.setBool('is_guest', false);
+    
+    // Clear Global API Cache too
+    await MagentoAPI().clearCache();
+    
     if (mounted) Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
   }
 
-  // --- REORDER LOGIC ---
   Future<void> _reorder(Order order) async {
     final cart = Provider.of<CartProvider>(context, listen: false);
-    
-    // We iterate through order items and add them to cart locally
-    // Note: We need full Product objects for the cart provider.
-    // Ideally, we fetch product by SKU to get image/details.
-    
     int addedCount = 0;
     for (var item in order.items) {
-      // Basic product object for cart (missing image/desc but works for now)
-      // For better UX, you might want to fetchProductBySku(item.sku) first.
       final simpleProduct = Product(
         name: item.name,
         sku: item.sku,
         price: item.price,
-        imageUrl: "https://buynutbolts.com/media/catalog/product/placeholder.jpg", // Fallback
+        imageUrl: "https://buynutbolts.com/media/catalog/product/placeholder.jpg", 
         description: "",
       );
-      
-      // Add quantity times
       for(int i=0; i<item.qty; i++) {
         cart.addToCart(simpleProduct);
       }
       addedCount++;
     }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("$addedCount items added to cart")),
-    );
-    // Navigate to Cart
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$addedCount items added to cart")));
     Navigator.pushNamed(context, '/cart');
   }
 
@@ -148,7 +148,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         firstName: _userData?['firstname'] ?? '',
                         lastName: _userData?['lastname'] ?? '',
                         email: _userData?['email'] ?? '',
-                      ))); // Password logic is inside same screen
+                      )));
                       if (result == true) _loadAllData();
                     }),
                   ])),
@@ -252,7 +252,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: DataTable(
-          headingRowColor: MaterialStateProperty.all(Colors.grey.shade50),
+          headingRowColor: WidgetStateProperty.all(Colors.grey.shade50), // Fixed Deprecated
           columns: const [
             DataColumn(label: Text("Order #")), DataColumn(label: Text("Date")),
             DataColumn(label: Text("Total")), DataColumn(label: Text("Status")), DataColumn(label: Text("Action")),

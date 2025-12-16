@@ -47,13 +47,22 @@ class CartProvider with ChangeNotifier {
       // 3. Sync with Server
       final serverItems = await _api.getCartItems();
       
-      // 4. Merge Server Items with Local Images
-      // (Server data usually lacks images, so we preserve them from local cache if possible)
-      final mergedList = _mergeServerWithLocalImages(serverItems, _items);
-      _items = mergedList;
-      
-      // 5. Save the authoritative list locally for next time
-      await _saveLocalCart();
+      if (serverItems == null) {
+        // TOKEN EXPIRED OR ERROR -> Fallback to Guest
+        print("⚠️ Token Invalid/Expired. Reverting to Guest Mode.");
+        await prefs.remove('customer_token');
+        await prefs.remove('cached_user_data');
+        MagentoAPI.cachedUser = null;
+        
+        // We already loaded local cart in step 1, so just notify and stop
+      } else {
+        // 4. Merge Server Items with Local Images
+        final mergedList = _mergeServerWithLocalImages(serverItems, _items);
+        _items = mergedList;
+        
+        // 5. Save the authoritative list locally for next time
+        await _saveLocalCart();
+      }
     } 
     
     _isLoading = false;
@@ -62,17 +71,13 @@ class CartProvider with ChangeNotifier {
 
   // --- MERGE HELPER ---
   Future<void> _mergeGuestItems(String token) async {
-    // Check if we have guest items (items with quoteId 'guest_local')
     if (_items.isNotEmpty) {
       final guestItems = _items.where((i) => i.quoteId == 'guest_local').toList();
-      
       if (guestItems.isNotEmpty) {
         print("🔄 Merging ${guestItems.length} Guest Items to Server...");
         for (var item in guestItems) {
           await _api.addToCart(item.sku, item.qty);
         }
-        // We don't need to manually clear them from _items here; 
-        // the subsequent API call to getCartItems() will return the correct merged state from the server.
       }
     }
   }
@@ -80,17 +85,13 @@ class CartProvider with ChangeNotifier {
   // --- IMAGE PRESERVATION HELPER ---
   List<CartItem> _mergeServerWithLocalImages(List<CartItem> serverItems, List<CartItem> localItems) {
     return serverItems.map((sItem) {
-      // If server item has image (enriched by API), use it.
       if (sItem.imageUrl != null && sItem.imageUrl!.isNotEmpty) {
         return sItem;
       }
-
-      // If not, try to find matching local item to get image
       final localMatch = localItems.firstWhere(
         (lItem) => lItem.sku == sItem.sku, 
         orElse: () => CartItem(itemId: 0, sku: '', qty: 0, name: '', price: 0, quoteId: '')
       );
-      
       if (localMatch.imageUrl != null && localMatch.imageUrl!.isNotEmpty) {
         return sItem.copyWith(imageUrl: localMatch.imageUrl);
       }
@@ -98,12 +99,12 @@ class CartProvider with ChangeNotifier {
     }).toList();
   }
 
-  // --- ADD TO CART (Optimistic) ---
+  // --- ADD TO CART ---
   Future<void> addToCart(Product product, {int qty = 1}) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('customer_token');
 
-    // 1. Optimistic Local Update (Instant Feedback)
+    // 1. Optimistic Local Update
     int index = _items.indexWhere((i) => i.sku == product.sku);
     if (index >= 0) {
       _items[index] = _items[index].copyWith(qty: _items[index].qty + qty);
@@ -115,43 +116,40 @@ class CartProvider with ChangeNotifier {
 
     // 2. Server Sync (if logged in)
     if (token != null) {
-      // Run in background so UI doesn't block
       _api.addToCart(product.sku, qty).then((success) {
         if (success) {
-          // Silent refresh to get real item IDs and ensure sync
           _api.getCartItems().then((serverItems) {
-             _items = _mergeServerWithLocalImages(serverItems, _items);
-             _saveLocalCart();
-             notifyListeners();
+             if (serverItems != null) {
+               _items = _mergeServerWithLocalImages(serverItems, _items);
+               _saveLocalCart();
+               notifyListeners();
+             }
           });
         }
       });
     }
   }
 
-  // --- REMOVE (Optimistic) ---
+  // --- REMOVE ---
   Future<void> removeFromCart(CartItem item) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('customer_token');
 
-    // 1. Optimistic Local Remove
     _items.removeWhere((i) => i.sku == item.sku); 
     notifyListeners();
     _saveLocalCart();
 
-    // 2. Server Sync
     if (token != null && item.itemId != 0) {
-      _api.removeCartItem(item.itemId); // Fire and forget for speed
+      _api.removeCartItem(item.itemId);
     }
   }
 
-  // --- UPDATE QTY (Optimistic) ---
+  // --- UPDATE QTY ---
   Future<void> updateQty(CartItem item, int newQty) async {
     if (newQty < 1) return;
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('customer_token');
 
-    // 1. Optimistic Update
     int index = _items.indexWhere((i) => i.sku == item.sku);
     if (index >= 0) {
       _items[index] = _items[index].copyWith(qty: newQty);
@@ -159,7 +157,6 @@ class CartProvider with ChangeNotifier {
       _saveLocalCart();
     }
 
-    // 2. Server Sync
     if (token != null && item.itemId != 0) {
       _api.updateCartItemQty(item.itemId, newQty, item.quoteId);
     }

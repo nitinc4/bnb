@@ -1,10 +1,71 @@
+// lib/widgets/app_drawer.dart
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../api/magento_api.dart';
 import '../models/magento_models.dart';
 import '../screens/category_detail_screen.dart';
+import '../screens/all_products_screen.dart'; // Ensure you have this screen file or remove this import/tile
 
-class AppDrawer extends StatelessWidget {
+class AppDrawer extends StatefulWidget {
   const AppDrawer({super.key});
+
+  @override
+  State<AppDrawer> createState() => _AppDrawerState();
+}
+
+class _AppDrawerState extends State<AppDrawer> {
+  String _accountName = "Welcome Guest";
+  String _accountEmail = "Login to track orders";
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadUserInstant();
+  }
+
+  // --- FAST LOAD STRATEGY ---
+  Future<void> _loadUserInstant() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('customer_token');
+
+    if (token != null) {
+      // 1. Try Memory Cache (Fastest - Immediate)
+      if (MagentoAPI.cachedUser != null) {
+        _updateUi(MagentoAPI.cachedUser!);
+      } 
+      // 2. Try Disk Cache (Fast - persisted across restarts)
+      else if (prefs.containsKey('cached_user_data')) {
+        try {
+          final data = jsonDecode(prefs.getString('cached_user_data')!);
+          _updateUi(data);
+          MagentoAPI.cachedUser = data; // Sync memory
+        } catch (e) {
+          // ignore error
+        }
+      }
+
+      // 3. Background Refresh (Slow, but ensures data is fresh)
+      // This runs silently. UI updates only if data changed.
+      try {
+        final api = MagentoAPI();
+        final user = await api.fetchCustomerDetails(token);
+        if (user != null && mounted) {
+          _updateUi(user);
+        }
+      } catch (e) {
+        // ignore network errors, keep showing cached data
+      }
+    }
+  }
+
+  void _updateUi(Map<String, dynamic> user) {
+    if (!mounted) return;
+    setState(() {
+      _accountName = "${user['firstname']} ${user['lastname']}";
+      _accountEmail = user['email'] ?? "";
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -17,11 +78,19 @@ class AppDrawer extends StatelessWidget {
         children: [
           UserAccountsDrawerHeader(
             decoration: const BoxDecoration(color: Color(0xFF00599c)),
-            accountName: const Text("Welcome Guest"),
-            accountEmail: const Text("Login to track orders"),
-            currentAccountPicture: const CircleAvatar(
+            accountName: Text(
+              _accountName, 
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)
+            ),
+            accountEmail: Text(_accountEmail),
+            currentAccountPicture: CircleAvatar(
               backgroundColor: Colors.white,
-              child: Icon(Icons.person, color: Color(0xFF00599c), size: 40),
+              child: Text(
+                _accountName.isNotEmpty && _accountName != "Welcome Guest" 
+                    ? _accountName[0].toUpperCase() 
+                    : "G",
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF00599c)),
+              ),
             ),
           ),
           Expanded(
@@ -34,6 +103,20 @@ class AppDrawer extends StatelessWidget {
                   title: const Text('Home'),
                   onTap: () => Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false),
                 ),
+                
+                // All Products
+                ListTile(
+                  leading: const Icon(Icons.grid_view),
+                  title: const Text('All Products'),
+                  onTap: () {
+                    Navigator.pop(context); // Close drawer
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const AllProductsScreen()),
+                    );
+                  },
+                ),
+
                 ListTile(
                   leading: const Icon(Icons.shopping_cart_outlined),
                   title: const Text('Cart'),
@@ -47,7 +130,7 @@ class AppDrawer extends StatelessWidget {
                   title: const Text('Profile'),
                   onTap: () {
                     Navigator.pop(context);
-                    // Add navigation to profile if needed
+                    Navigator.pushNamed(context, '/profile');
                   },
                 ),
                 const Divider(),
