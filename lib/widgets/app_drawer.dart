@@ -5,7 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/magento_api.dart';
 import '../models/magento_models.dart';
 import '../screens/category_detail_screen.dart';
-import '../screens/all_products_screen.dart'; // Ensure you have this screen file or remove this import/tile
+import '../screens/all_products_screen.dart'; 
+import '../screens/website_webview_screen.dart';
 
 class AppDrawer extends StatefulWidget {
   const AppDrawer({super.key});
@@ -131,6 +132,22 @@ class _AppDrawerState extends State<AppDrawer> {
                   onTap: () {
                     Navigator.pop(context);
                     Navigator.pushNamed(context, '/profile');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.info_outline),
+                  title: const Text('About Us'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const WebsiteWebViewScreen(
+                          title: "About Us",
+                          url: "https://buynutbolts.com/about-us",
+                        ),
+                      ),
+                    );
                   },
                 ),
                 const Divider(),
