@@ -17,22 +17,35 @@ class ProductDetailScreen extends StatefulWidget {
 
 class _ProductDetailScreenState extends State<ProductDetailScreen> {
   late Product _currentProduct;
+  bool _isLoadingDetails = false;
 
   @override
   void initState() {
     super.initState();
     _currentProduct = widget.product;
+    
+    // If description is missing (e.g. came from cart), fetch full details
+    if (_currentProduct.description.isEmpty) {
+      _fetchFullDetails();
+    }
+  }
+
+  Future<void> _fetchFullDetails() async {
+    setState(() => _isLoadingDetails = true);
+    final api = MagentoAPI();
+    final fullProduct = await api.fetchProductBySku(_currentProduct.sku);
+    if (fullProduct != null && mounted) {
+      setState(() {
+        _currentProduct = fullProduct;
+        _isLoadingDetails = false;
+      });
+    } else {
+      if (mounted) setState(() => _isLoadingDetails = false);
+    }
   }
 
   Future<void> _onRefresh() async {
-    // Fetch fresh details for this specific product using SKU
-    final refreshedProduct = await MagentoAPI().fetchProductBySku(_currentProduct.sku);
-    if (refreshedProduct != null && mounted) {
-      setState(() {
-        _currentProduct = refreshedProduct;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Product updated"), duration: Duration(milliseconds: 500)));
-    }
+    await _fetchFullDetails();
   }
 
   @override
@@ -40,7 +53,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: Text(_currentProduct.name),
+        title: Text(_currentProduct.name, style: const TextStyle(fontSize: 16)),
         actions: [
           Consumer<CartProvider>(
             builder: (_, cart, ch) => Stack(
@@ -59,18 +72,20 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       body: RefreshIndicator(
         onRefresh: _onRefresh,
         child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(), // Ensures refresh works even if content is short
+          physics: const AlwaysScrollableScrollPhysics(),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(
                 height: 300, width: double.infinity,
-                child: CachedNetworkImage(
-                  imageUrl: _currentProduct.imageUrl,
-                  fit: BoxFit.cover,
-                  placeholder: (context, url) => Container(color: Colors.grey.shade100),
-                  errorWidget: (context, url, error) => const Icon(Icons.broken_image),
-                ),
+                child: _currentProduct.imageUrl.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: _currentProduct.imageUrl,
+                      fit: BoxFit.contain,
+                      placeholder: (context, url) => Container(color: Colors.grey.shade100),
+                      errorWidget: (context, url, error) => const Icon(Icons.broken_image),
+                    )
+                  : Container(color: Colors.grey.shade100, child: const Icon(Icons.image, size: 50, color: Colors.grey)),
               ),
               Padding(
                 padding: const EdgeInsets.all(16.0),
@@ -85,8 +100,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     const SizedBox(height: 24),
                     const Text("Description", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 8),
-                    Text(_currentProduct.description, style: const TextStyle(color: Colors.black54, height: 1.5)),
-                    const SizedBox(height: 80), // Extra space for FAB/BottomBar
+                    if (_isLoadingDetails) 
+                      const LinearProgressIndicator(color: Color(0xFF00599c))
+                    else
+                      Text(_currentProduct.description.isNotEmpty ? _currentProduct.description : "No description available.", style: const TextStyle(color: Colors.black54, height: 1.5)),
+                    const SizedBox(height: 80), 
                   ],
                 ),
               ),
@@ -97,14 +115,60 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       bottomNavigationBar: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, -2))]),
-        child: ElevatedButton(
-          onPressed: () {
-            Provider.of<CartProvider>(context, listen: false).addToCart(_currentProduct);
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${_currentProduct.name} added to cart!"), backgroundColor: const Color(0xFF00599c), duration: const Duration(seconds: 1)));
+        child: Consumer<CartProvider>(
+          builder: (context, cart, child) {
+            // Check if item is already in cart
+            final cartItemIndex = cart.items.indexWhere((i) => i.sku == _currentProduct.sku);
+            final isInCart = cartItemIndex >= 0;
+            final qty = isInCart ? cart.items[cartItemIndex].qty : 0;
+
+            if (!isInCart) {
+              // Show ADD TO CART
+              return ElevatedButton(
+                onPressed: () {
+                  cart.addToCart(_currentProduct);
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${_currentProduct.name} added to cart!"), duration: const Duration(seconds: 1)));
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                child: const Text("Add to Cart", style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
+              );
+            } else {
+              // Show QTY ADJUSTER (Sync Realtime)
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildQtyBtn(Icons.remove, () {
+                    if (qty > 1) {
+                      cart.updateQty(cart.items[cartItemIndex], qty - 1);
+                    } else {
+                      cart.removeFromCart(cart.items[cartItemIndex]);
+                    }
+                  }),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                    child: Text("$qty", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF00599c))),
+                  ),
+                  _buildQtyBtn(Icons.add, () {
+                    cart.updateQty(cart.items[cartItemIndex], qty + 1);
+                  }),
+                ],
+              );
+            }
           },
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-          child: const Text("Add to Cart", style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
         ),
+      ),
+    );
+  }
+
+  Widget _buildQtyBtn(IconData icon, VoidCallback onTap) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF00599c),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: IconButton(
+        icon: Icon(icon, color: Colors.white),
+        onPressed: onTap,
       ),
     );
   }

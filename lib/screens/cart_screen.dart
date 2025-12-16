@@ -1,12 +1,13 @@
 // lib/screens/cart_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/cart_provider.dart';
 import '../models/magento_models.dart';
 import 'checkout_screen.dart';
 import 'home_screen.dart';
+import 'product_detail_screen.dart'; // Import detail screen
 
 class CartScreen extends StatefulWidget {
   const CartScreen({super.key});
@@ -16,10 +17,13 @@ class CartScreen extends StatefulWidget {
 }
 
 class _CartScreenState extends State<CartScreen> {
-  Future<void> _handleRefresh() async {
-    // Just a visual refresh or implement price sync here
-    await Future.delayed(const Duration(seconds: 1)); 
-    if (mounted) setState(() {});
+  
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<CartProvider>(context, listen: false).fetchCart();
+    });
   }
 
   Future<void> _handleCheckout(BuildContext context, double total) async {
@@ -60,66 +64,80 @@ class _CartScreenState extends State<CartScreen> {
         iconTheme: const IconThemeData(color: Color(0xFF00599c)),
         elevation: 1,
         actions: [
-          Consumer<CartProvider>(
-            builder: (_, cart, __) => cart.items.isEmpty 
-              ? const SizedBox()
-              : IconButton(icon: const Icon(Icons.delete_outline, color: Colors.grey), onPressed: () => cart.clearCart()),
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Color(0xFF00599c)),
+            onPressed: () => Provider.of<CartProvider>(context, listen: false).fetchCart(),
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _handleRefresh,
-        child: Consumer<CartProvider>(
-          builder: (context, cart, child) {
-            if (cart.items.isEmpty) return _buildEmptyCart();
+      body: Consumer<CartProvider>(
+        builder: (context, cart, child) {
+          if (cart.isLoading) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (cart.items.isEmpty) {
+            return _buildEmptyCart();
+          }
 
-            final groupedItems = <String, List<Product>>{};
-            for (var item in cart.items) {
-              if (!groupedItems.containsKey(item.sku)) groupedItems[item.sku] = [];
-              groupedItems[item.sku]!.add(item);
-            }
-            final uniqueSkuList = groupedItems.keys.toList();
-
-            return ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-              itemCount: uniqueSkuList.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final sku = uniqueSkuList[index];
-                final productList = groupedItems[sku]!;
-                final product = productList.first;
-                final quantity = productList.length;
-
-                return Card(
+          return ListView.separated(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+            itemCount: cart.items.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            itemBuilder: (context, index) {
+              final item = cart.items[index];
+              return GestureDetector(
+                onTap: () {
+                  // Navigate to Product Detail on tap
+                  final product = Product(
+                    name: item.name,
+                    sku: item.sku,
+                    price: item.price,
+                    imageUrl: item.imageUrl ?? "",
+                    description: "", // Detail screen will fetch this
+                  );
+                  Navigator.push(
+                    context, 
+                    MaterialPageRoute(builder: (_) => ProductDetailScreen(product: product))
+                  );
+                },
+                child: Card(
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   elevation: 2,
                   child: ListTile(
                     contentPadding: const EdgeInsets.all(12),
                     leading: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: CachedNetworkImage(
-                        imageUrl: product.imageUrl,
-                        width: 60, height: 60, fit: BoxFit.cover,
-                        placeholder: (context, url) => Container(color: Colors.grey.shade200),
-                        errorWidget: (context, url, error) => const Icon(Icons.broken_image),
-                      ),
+                      borderRadius: BorderRadius.circular(8),
+                      child: item.imageUrl != null && item.imageUrl!.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: item.imageUrl!,
+                            width: 60, height: 60, fit: BoxFit.cover,
+                            placeholder: (context, url) => Container(color: Colors.grey.shade100),
+                            errorWidget: (context, url, error) => const Icon(Icons.broken_image),
+                          )
+                        : Container(width: 60, height: 60, color: Colors.grey.shade200, child: const Icon(Icons.image, color: Colors.grey)),
                     ),
-                    title: Text(product.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: Text("₹${product.price.toStringAsFixed(2)}", style: const TextStyle(color: Colors.black54)),
+                    title: Text(item.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: Text("₹${item.price.toStringAsFixed(2)}", style: const TextStyle(color: Colors.black54)),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => cart.removeFromCart(product)),
-                        Text("$quantity", style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00599c), fontSize: 16)),
-                        IconButton(icon: const Icon(Icons.add_circle_outline, color: Color(0xFF00599c)), onPressed: () => cart.addToCart(product)),
+                        IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () {
+                          if(item.qty > 1) {
+                            cart.updateQty(item, item.qty - 1);
+                          } else {
+                            cart.removeFromCart(item);
+                          }
+                        }),
+                        Text("${item.qty}", style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00599c), fontSize: 16)),
+                        IconButton(icon: const Icon(Icons.add_circle_outline, color: Color(0xFF00599c)), onPressed: () => cart.updateQty(item, item.qty + 1)),
                       ],
                     ),
                   ),
-                );
-              },
-            );
-          },
-        ),
+                ),
+              );
+            },
+          );
+        },
       ),
       bottomNavigationBar: Consumer<CartProvider>(builder: (context, cart, child) {
          return SafeArea(
@@ -156,14 +174,14 @@ class _CartScreenState extends State<CartScreen> {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
-        child: ListView( // Changed to ListView to support RefreshIndicator on empty state
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const SizedBox(height: 100),
             const Icon(Icons.shopping_cart_outlined, size: 100, color: Colors.grey),
             const SizedBox(height: 20),
-            const Text("Your cart is empty", textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black87)),
+            const Text("Your cart is empty", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black87)),
             const SizedBox(height: 8),
-            const Text("Looks like you haven’t added anything yet.", textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
+            const Text("Looks like you haven’t added anything yet.", style: TextStyle(color: Colors.black54), textAlign: TextAlign.center),
           ],
         ),
       ),

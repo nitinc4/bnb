@@ -9,7 +9,6 @@ import 'cart_screen.dart';
 import 'profile_screen.dart';
 import 'categories_screen.dart';
 import 'category_detail_screen.dart';
-import 'product_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});

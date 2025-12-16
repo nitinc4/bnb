@@ -145,8 +145,6 @@ class Category {
   }
 }
 
-// --- ORDER MODELS ---
-
 class OrderItem {
   final String name;
   final String sku;
@@ -176,8 +174,8 @@ class Order {
   final double grandTotal;
   final String createdAt;
   final String shippingName;
-  final List<OrderItem> items; // Added
-  final String billingName;    // Added
+  final String billingName;
+  final List<OrderItem> items;
 
   Order({
     required this.incrementId,
@@ -185,34 +183,29 @@ class Order {
     required this.grandTotal,
     required this.createdAt,
     required this.shippingName,
-    required this.items,
     required this.billingName,
+    required this.items,
   });
 
   factory Order.fromJson(Map<String, dynamic> json) {
-    // 1. Shipping Name
     String sName = "N/A";
     if (json['extension_attributes'] != null && 
         json['extension_attributes']['shipping_assignments'] != null) {
       final assignments = json['extension_attributes']['shipping_assignments'] as List;
       if (assignments.isNotEmpty) {
-        final addr = assignments[0]['shipping']['address'];
-        sName = "${addr['firstname'] ?? ''} ${addr['lastname'] ?? ''}".trim();
+        final address = assignments[0]['shipping']['address'];
+        sName = "${address['firstname'] ?? ''} ${address['lastname'] ?? ''}".trim();
       }
     }
 
-    // 2. Billing Name
     String bName = "N/A";
     if (json['billing_address'] != null) {
         bName = "${json['billing_address']['firstname'] ?? ''} ${json['billing_address']['lastname'] ?? ''}".trim();
     }
 
-    // 3. Items
     List<OrderItem> orderItems = [];
     if (json['items'] != null) {
-      orderItems = (json['items'] as List)
-          .map((i) => OrderItem.fromJson(i))
-          .toList();
+      orderItems = (json['items'] as List).map((i) => OrderItem.fromJson(i)).toList();
     }
 
     return Order(
@@ -223,6 +216,76 @@ class Order {
       shippingName: sName,
       billingName: bName,
       items: orderItems,
+    );
+  }
+}
+
+// --- UPDATED: CART ITEM ---
+class CartItem {
+  final int itemId;
+  final String sku;
+  final int qty;
+  final String name;
+  final double price;
+  final String quoteId;
+  final String? imageUrl; 
+
+  CartItem({
+    required this.itemId,
+    required this.sku,
+    required this.qty,
+    required this.name,
+    required this.price,
+    required this.quoteId,
+    this.imageUrl,
+  });
+
+  factory CartItem.fromJson(Map<String, dynamic> json) {
+    return CartItem(
+      itemId: json['item_id'] ?? 0,
+      sku: json['sku'] ?? '',
+      qty: (json['qty'] as num?)?.toInt() ?? 1,
+      name: json['name'] ?? 'Unknown',
+      price: (json['price'] as num?)?.toDouble() ?? 0.0,
+      quoteId: json['quote_id']?.toString() ?? '',
+      imageUrl: json['image_url'], // May be null from API, filled locally
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'item_id': itemId,
+      'sku': sku,
+      'qty': qty,
+      'name': name,
+      'price': price,
+      'quote_id': quoteId,
+      'image_url': imageUrl,
+    };
+  }
+
+  // Helper to create from Product (Guest Mode)
+  factory CartItem.fromProduct(Product product, int quantity) {
+    return CartItem(
+      itemId: DateTime.now().millisecondsSinceEpoch, // Temp ID
+      sku: product.sku,
+      qty: quantity,
+      name: product.name,
+      price: product.price,
+      quoteId: 'guest_local',
+      imageUrl: product.imageUrl,
+    );
+  }
+  
+  CartItem copyWith({int? qty, int? itemId, String? quoteId, String? imageUrl}) {
+    return CartItem(
+      itemId: itemId ?? this.itemId,
+      sku: sku,
+      qty: qty ?? this.qty,
+      name: name,
+      price: price,
+      quoteId: quoteId ?? this.quoteId,
+      imageUrl: imageUrl ?? this.imageUrl,
     );
   }
 }
