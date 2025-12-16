@@ -1,3 +1,4 @@
+// lib/screens/home_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart'; 
 import '../widgets/product_card.dart';
@@ -9,6 +10,7 @@ import 'cart_screen.dart';
 import 'profile_screen.dart';
 import 'categories_screen.dart';
 import 'category_detail_screen.dart';
+import 'search_screen.dart'; // Import SearchScreen
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,8 +22,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   
-  // We don't cache the list of pages in initState anymore.
-  // We only keep the futures here.
   late Future<List<Category>> _categoriesFuture;
   late Future<List<Product>> _productsFuture;
   
@@ -40,16 +40,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _onRefresh() async {
-    // 1. Clear the cache first
     await MagentoAPI().clearCache();
-    
-    // 2. Trigger a rebuild with new Futures
     setState(() {
       _loadData();
     });
-
-    // 3. CRITICAL: Wait for the new futures to complete.
-    // This keeps the spinner visible until data is actually ready.
     await Future.wait([_categoriesFuture, _productsFuture]);
   }
 
@@ -59,7 +53,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Define pages inside build so they pick up the updated futures
     final List<Widget> pages = [
       KeyedSubtree(key: const ValueKey('homeTab'), child: _buildHomeTab()),
       const CategoriesScreen(key: ValueKey('categoriesTab')), 
@@ -101,7 +94,6 @@ class _HomeScreenState extends State<HomeScreen> {
           )
         ],
       ),
-      // Use the local list of pages
       body: SafeArea(child: pages[_selectedIndex]),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
@@ -124,7 +116,6 @@ class _HomeScreenState extends State<HomeScreen> {
       onRefresh: _onRefresh,
       color: const Color(0xFF00599c),
       child: SingleChildScrollView(
-        // AlwaysScrollable ensures refresh works even if content is short
         physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -132,12 +123,19 @@ class _HomeScreenState extends State<HomeScreen> {
             // Search Bar
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: TextField(
-                decoration: InputDecoration(
-                  hintText: 'Search for products...',
-                  prefixIcon: const Icon(Icons.search, color: Color(0xFF00599c)),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
-                  filled: true, fillColor: Colors.grey.shade100,
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen()));
+                },
+                child: AbsorbPointer( // Prevents keyboard from opening here
+                  child: TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Search for products...',
+                      prefixIcon: const Icon(Icons.search, color: Color(0xFF00599c)),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                      filled: true, fillColor: Colors.grey.shade100,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -152,7 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
             SizedBox(
               height: 170,
               child: FutureBuilder<List<Category>>(
-                future: _categoriesFuture, // This now updates correctly on refresh
+                future: _categoriesFuture,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
                     return const Center(child: CircularProgressIndicator());
@@ -220,7 +218,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: FutureBuilder<List<Product>>(
-                future: _productsFuture, // This now updates correctly
+                future: _productsFuture,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
                     return const Center(child: CircularProgressIndicator());

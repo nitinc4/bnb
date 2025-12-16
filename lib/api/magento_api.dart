@@ -24,7 +24,56 @@ class MagentoAPI {
     );
   }
 
-  // --- CART METHODS ---
+  // --- SEARCH METHODS ---
+
+  // 1. Full Search (for Grid)
+  Future<List<Product>> searchProducts(String query) async {
+    return _performSearch(query, pageSize: 20);
+  }
+
+  // 2. Suggestions (for Auto-complete)
+  Future<List<Product>> getSearchSuggestions(String query) async {
+    return _performSearch(query, pageSize: 4);
+  }
+
+  // Shared Search Logic
+  Future<List<Product>> _performSearch(String query, {required int pageSize}) async {
+    if (query.trim().isEmpty) return [];
+    
+    // Clean query to avoid breaking API
+    final cleanQuery = query.trim();
+
+    try {
+      final response = await _oauthClient.get("/products", params: {
+        // Condition: (Name LIKE %q% OR SKU LIKE %q%)
+        
+        // Filter 1: Name
+        "searchCriteria[filter_groups][0][filters][0][field]": "name",
+        "searchCriteria[filter_groups][0][filters][0][value]": "%$cleanQuery%",
+        "searchCriteria[filter_groups][0][filters][0][condition_type]": "like",
+        
+        // Filter 2: SKU (Same group = OR logic)
+        "searchCriteria[filter_groups][0][filters][1][field]": "sku",
+        "searchCriteria[filter_groups][0][filters][1][value]": "%$cleanQuery%",
+        "searchCriteria[filter_groups][0][filters][1][condition_type]": "like",
+        
+        // Settings
+        "searchCriteria[pageSize]": pageSize.toString(),
+        "searchCriteria[currentPage]": "1",
+      });
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final items = data["items"] as List? ?? [];
+        return items.map((json) => Product.fromJson(json)).toList();
+      }
+    } catch (e) {
+      print("Search Error: $e");
+    }
+    return [];
+  }
+
+  // --- CART METHODS (Existing) ---
 
   Future<List<CartItem>> getCartItems() async {
     final token = await _getCustomerToken();
@@ -40,20 +89,18 @@ class MagentoAPI {
         final List data = jsonDecode(response.body);
         List<CartItem> items = data.map((e) => CartItem.fromJson(e)).toList();
 
-        // 1. Ensure Memory Cache is populated from Disk (for instant images)
+        // Enrich Items with Images from Cache or Fetch
         if (cachedProducts.isEmpty) {
           final prefs = await SharedPreferences.getInstance();
           if (prefs.containsKey('cached_products_data')) {
             try {
               final decoded = jsonDecode(prefs.getString('cached_products_data')!);
               cachedProducts = (decoded as List).map((e) => Product.fromJson(e)).toList();
-            } catch (e) { print("Cache load error: $e"); }
+            } catch (e) {}
           }
         }
 
-        // 2. Enrich Items with Images
         for (int i = 0; i < items.length; i++) {
-          // A. Try Cache
           final cached = cachedProducts.firstWhere(
             (p) => p.sku == items[i].sku, 
             orElse: () => Product(name: '', sku: '', price: 0, imageUrl: '', description: '')
@@ -62,8 +109,7 @@ class MagentoAPI {
           if (cached.imageUrl.isNotEmpty) {
             items[i] = items[i].copyWith(imageUrl: cached.imageUrl);
           } else {
-            // B. Fetch Individual Product (if cache missed)
-            try {
+             try {
               final product = await fetchProductBySku(items[i].sku);
               if (product != null && product.imageUrl.isNotEmpty) {
                 items[i] = items[i].copyWith(imageUrl: product.imageUrl);
@@ -84,7 +130,6 @@ class MagentoAPI {
     if (token == null) return false;
 
     try {
-      // 1. Get Quote ID
       final cartRes = await http.post(
         Uri.parse("$baseUrl/rest/V1/carts/mine"),
         headers: {"Authorization": "Bearer $token", "Content-Type": "application/json"},
@@ -92,7 +137,6 @@ class MagentoAPI {
       if (cartRes.statusCode != 200) return false;
       String quoteId = jsonDecode(cartRes.body).toString();
 
-      // 2. Add Item
       final response = await http.post(
         Uri.parse("$baseUrl/rest/V1/carts/mine/items"),
         headers: {"Authorization": "Bearer $token", "Content-Type": "application/json"},
@@ -105,9 +149,7 @@ class MagentoAPI {
         }),
       );
       return response.statusCode == 200;
-    } catch (e) {
-      return false;
-    }
+    } catch (e) { return false; }
   }
 
   Future<bool> removeCartItem(int itemId) async {
@@ -167,10 +209,10 @@ class MagentoAPI {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final childrenData = data['children_data'] as List? ?? [];
-        final basicCategories = childrenData.map((e) => Category.fromJson(e)).toList();
-        final fullCategories = await enrichCategories(basicCategories);
-        cachedCategories = fullCategories;
-        prefs.setString('cached_categories_data', jsonEncode(fullCategories.map((e) => e.toJson()).toList()));
+        final basic = childrenData.map((e) => Category.fromJson(e)).toList();
+        final full = await enrichCategories(basic);
+        cachedCategories = full;
+        prefs.setString('cached_categories_data', jsonEncode(full.map((e) => e.toJson()).toList()));
         return cachedCategories;
       }
     } catch (e) {}
@@ -213,7 +255,6 @@ class MagentoAPI {
 
   Future<List<Product>> fetchProducts({int? categoryId}) async {
     if (categoryId == null && cachedProducts.isNotEmpty) return cachedProducts;
-    
     try {
       final Map<String, String> queryParams = {"searchCriteria[pageSize]": "20"};
       if (categoryId != null) {
@@ -221,7 +262,6 @@ class MagentoAPI {
         queryParams["searchCriteria[filter_groups][0][filters][0][value]"] = "$categoryId";
         queryParams["searchCriteria[filter_groups][0][filters][0][condition_type]"] = "eq";
       }
-
       final response = await _oauthClient.get("/products", params: queryParams);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -270,7 +310,6 @@ class MagentoAPI {
   }
 
   // --- AUTH & PROFILE ---
-
   Future<String?> loginCustomer(String email, String password) async {
     try {
       final response = await http.post(

@@ -8,7 +8,6 @@ import '../api/magento_api.dart';
 
 class ProductDetailScreen extends StatefulWidget {
   final Product product;
-
   const ProductDetailScreen({super.key, required this.product});
 
   @override
@@ -23,11 +22,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   void initState() {
     super.initState();
     _currentProduct = widget.product;
-    
-    // If description is missing (e.g. came from cart), fetch full details
-    if (_currentProduct.description.isEmpty) {
-      _fetchFullDetails();
-    }
+    if (_currentProduct.description.isEmpty) _fetchFullDetails();
   }
 
   Future<void> _fetchFullDetails() async {
@@ -96,7 +91,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     const SizedBox(height: 8),
                     Text("SKU: ${_currentProduct.sku}", style: TextStyle(color: Colors.grey.shade600)),
                     const SizedBox(height: 16),
-                    Text("₹${_currentProduct.price.toStringAsFixed(2)}", style: const TextStyle(fontSize: 24, color: Color(0xFF00599c), fontWeight: FontWeight.w800)),
+                    // Price moved to bottom bar, removed from here or kept as backup
                     const SizedBox(height: 24),
                     const Text("Description", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 8),
@@ -113,62 +108,76 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         ),
       ),
       bottomNavigationBar: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
         decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, -2))]),
-        child: Consumer<CartProvider>(
-          builder: (context, cart, child) {
-            // Check if item is already in cart
-            final cartItemIndex = cart.items.indexWhere((i) => i.sku == _currentProduct.sku);
-            final isInCart = cartItemIndex >= 0;
-            final qty = isInCart ? cart.items[cartItemIndex].qty : 0;
-
-            if (!isInCart) {
-              // Show ADD TO CART
-              return ElevatedButton(
-                onPressed: () {
-                  cart.addToCart(_currentProduct);
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${_currentProduct.name} added to cart!"), duration: const Duration(seconds: 1)));
-                },
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                child: const Text("Add to Cart", style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
-              );
-            } else {
-              // Show QTY ADJUSTER (Sync Realtime)
-              return Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildQtyBtn(Icons.remove, () {
-                    if (qty > 1) {
-                      cart.updateQty(cart.items[cartItemIndex], qty - 1);
+        child: SafeArea(
+          child: Row(
+            children: [
+              // 1. PRICE (Left)
+              Expanded(
+                flex: 2,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("Price", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                    Text("₹${_currentProduct.price.toStringAsFixed(2)}", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF00599c))),
+                  ],
+                ),
+              ),
+              
+              // 2. ACTION BUTTON (Right)
+              Expanded(
+                flex: 3,
+                child: Consumer<CartProvider>(
+                  builder: (context, cart, child) {
+                    final cartItemIndex = cart.items.indexWhere((i) => i.sku == _currentProduct.sku);
+                    final isInCart = cartItemIndex >= 0;
+                    final qty = isInCart ? cart.items[cartItemIndex].qty : 0;
+        
+                    if (!isInCart) {
+                      return ElevatedButton(
+                        onPressed: () {
+                          cart.addToCart(_currentProduct);
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${_currentProduct.name} added to cart!"), duration: const Duration(seconds: 1)));
+                        },
+                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                        child: const Text("Add to Cart", style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
+                      );
                     } else {
-                      cart.removeFromCart(cart.items[cartItemIndex]);
+                      return Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        decoration: BoxDecoration(color: const Color(0xFF00599c), borderRadius: BorderRadius.circular(12)),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            InkWell(
+                              onTap: () {
+                                if (qty > 1) {
+                                  cart.updateQty(cart.items[cartItemIndex], qty - 1);
+                                } else {
+                                  cart.removeFromCart(cart.items[cartItemIndex]);
+                                }
+                              },
+                              child: const Icon(Icons.remove, color: Colors.white),
+                            ),
+                            Text("$qty", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                            InkWell(
+                              onTap: () {
+                                cart.updateQty(cart.items[cartItemIndex], qty + 1);
+                              },
+                              child: const Icon(Icons.add, color: Colors.white),
+                            ),
+                          ],
+                        ),
+                      );
                     }
-                  }),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                    child: Text("$qty", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF00599c))),
-                  ),
-                  _buildQtyBtn(Icons.add, () {
-                    cart.updateQty(cart.items[cartItemIndex], qty + 1);
-                  }),
-                ],
-              );
-            }
-          },
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildQtyBtn(IconData icon, VoidCallback onTap) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF00599c),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: IconButton(
-        icon: Icon(icon, color: Colors.white),
-        onPressed: onTap,
       ),
     );
   }
