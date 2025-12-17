@@ -11,7 +11,7 @@ class MagentoAPI {
   late final MagentoOAuthClient _oauthClient;
 
   static List<Category> cachedCategories = [];
-  static List<Product> cachedProducts = [];
+  static List<Product> cachedProducts = []; // Caches "Default Sort" + "No Filter" only
   static Map<String, Category> _detailsCache = {};
   static Map<String, dynamic>? cachedUser; 
 
@@ -66,18 +66,23 @@ class MagentoAPI {
     );
   }
 
-  // --- MODIFIED: FETCH PRODUCTS WITH PAGINATION AND FILTERS ---
+  // --- MODIFIED: FETCH PRODUCTS WITH PAGINATION, FILTERS AND SORT ---
   Future<List<Product>> fetchProducts({
     int? categoryId, 
     int page = 1, 
     int pageSize = 20,
     Map<String, dynamic>? filters,
-    String? sortField,     // New: Field to sort by (e.g., 'price', 'name')
-    String? sortDirection, // New: Direction 'ASC' or 'DESC'
+    String? sortField,     
+    String? sortDirection, 
   }) async {
-    // Only use cache for the very first page of "Featured Products" if no filters
-    bool isDefaultSort = sortField == null;
-    if (categoryId == null && page == 1 && (filters == null || filters.isEmpty) && cachedProducts.isNotEmpty) {
+    // Check if we are using the default sort (Relevance/None)
+    bool isDefaultSort = sortField == null || sortField.isEmpty;
+    bool hasFilters = filters != null && filters.isNotEmpty;
+    bool isFirstPage = page == 1;
+    bool isAllProducts = categoryId == null;
+
+    // READ CACHE: Only for All Products, Page 1, No Filters, Default Sort
+    if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort && cachedProducts.isNotEmpty) {
       return cachedProducts;
     }
     
@@ -99,8 +104,8 @@ class MagentoAPI {
       }
 
       // Add Custom Filters
-      if (filters != null) {
-        filters.forEach((key, value) {
+      if (hasFilters) {
+        filters!.forEach((key, value) {
           queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][field]"] = key;
           queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][value]"] = value.toString();
           queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][condition_type]"] = "eq";
@@ -109,10 +114,11 @@ class MagentoAPI {
       }
 
       // Add Sorting
-      if (sortField != null && sortDirection != null) {
-        queryParams["searchCriteria[sortOrders][0][field]"] = sortField;
+      if (!isDefaultSort && sortDirection != null) {
+        queryParams["searchCriteria[sortOrders][0][field]"] = sortField!;
         queryParams["searchCriteria[sortOrders][0][direction]"] = sortDirection;
       }
+
       final response = await _oauthClient.get("/products", params: queryParams);
       
       if (response.statusCode == 200) {
@@ -120,8 +126,8 @@ class MagentoAPI {
         final items = data["items"] as List? ?? [];
         final products = items.map((json) => Product.fromJson(json)).toList();
 
-        // Cache only the first page of "All Products" for the Home Screen if no filters
-        if (categoryId == null && page == 1 && (filters == null || filters.isEmpty)) {
+        // WRITE CACHE: Only for All Products, Page 1, No Filters, Default Sort
+        if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort) {
           cachedProducts = products;
           final prefs = await SharedPreferences.getInstance();
           prefs.setString('cached_products_data', jsonEncode(products.map((e) => e.toJson()).toList()));
@@ -143,24 +149,18 @@ class MagentoAPI {
         return data
             .map((e) => ProductAttribute.fromJson(e))
             .where((attr) {
-              // 1. Must be select/multiselect
               final isSelect = attr.frontendInput == 'select' || attr.frontendInput == 'multiselect';
-              
-              // 2. Must have options
               final hasOptions = attr.options.isNotEmpty;
               
-              // 3. Normalization for comparison
               final labelLower = attr.label.toLowerCase().trim();
               final codeLower = attr.code.toLowerCase().trim();
-              final codeHumanized = codeLower.replaceAll('_', ' '); // e.g. "tax_class_id" -> "tax class id"
+              final codeHumanized = codeLower.replaceAll('_', ' ');
 
-              // 4. Check against Excluded Labels
               final isLabelExcluded = _excludedAttributeLabels.any((ex) => 
-                  labelLower == ex.toLowerCase().trim() || // Exact label match
-                  codeHumanized.contains(ex.toLowerCase().trim()) // Code contains exclusion string (e.g. "tax class" in "tax class id")
+                  labelLower == ex.toLowerCase().trim() || 
+                  codeHumanized.contains(ex.toLowerCase().trim())
               );
 
-              // 5. Check against Excluded Codes
               final isCodeExcluded = _excludedAttributeCodes.contains(codeLower);
 
               return isSelect && hasOptions && !isLabelExcluded && !isCodeExcluded;
@@ -176,7 +176,6 @@ class MagentoAPI {
   // --- NEW: FETCH ALL FILTERABLE ATTRIBUTES (For All Products Page) ---
   Future<List<ProductAttribute>> fetchGlobalFilterableAttributes() async {
     try {
-      // Fetch attributes where is_filterable = 1 (Use in Layered Navigation)
       final queryParams = {
         "searchCriteria[filter_groups][0][filters][0][field]": "is_filterable",
         "searchCriteria[filter_groups][0][filters][0][value]": "1",

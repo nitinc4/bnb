@@ -25,9 +25,9 @@ class _AllProductsScreenState extends State<AllProductsScreen> {
   final Map<String, dynamic> _activeFilters = {};
   
   // Sorting State
-  String? _sortField; // e.g. 'price', 'name'
-  String? _sortDirection; // 'ASC' or 'DESC'
-  String _sortLabel = 'Relevance'; // Display label
+  String? _sortField; 
+  String? _sortDirection; 
+  String _sortLabel = 'Relevance'; 
 
   @override
   void initState() {
@@ -65,7 +65,6 @@ class _AllProductsScreenState extends State<AllProductsScreen> {
       _isLoading = true;
     });
 
-    // Pass active filters and sort params to API
     final newProducts = await _api.fetchProducts(
       page: _page, 
       filters: _activeFilters.isNotEmpty ? _activeFilters : null,
@@ -217,8 +216,8 @@ class _AllProductsScreenState extends State<AllProductsScreen> {
           _sortDirection = dir;
           _sortLabel = label;
         });
-        Navigator.pop(context); // Close dialog
-        _resetAndFetch(); // Refresh list
+        Navigator.pop(context); 
+        _resetAndFetch(); 
       },
     );
   }
