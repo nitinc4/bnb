@@ -198,7 +198,32 @@ class MagentoAPI {
     return [];
   }
 
-  // --- OTHER EXISTING METHODS (Keep as is) ---
+  // --- NEW: BATCH FETCH PRODUCTS BY SKUS (For Cart Images) ---
+  Future<List<Product>> _fetchProductsBySkus(List<String> skus) async {
+    if (skus.isEmpty) return [];
+    try {
+      // Join SKUs with comma for 'in' query
+      final skuListStr = skus.join(",");
+      final queryParams = {
+        "searchCriteria[filter_groups][0][filters][0][field]": "sku",
+        "searchCriteria[filter_groups][0][filters][0][value]": skuListStr,
+        "searchCriteria[filter_groups][0][filters][0][condition_type]": "in",
+        "searchCriteria[pageSize]": "${skus.length}" 
+      };
+      
+      final response = await _oauthClient.get("/products", params: queryParams);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final items = data["items"] as List? ?? [];
+        return items.map((json) => Product.fromJson(json)).toList();
+      }
+    } catch (e) {
+      print("Error fetching cart product details: $e");
+    }
+    return [];
+  }
+
+  // --- OTHER EXISTING METHODS ---
 
   Future<void> clearCache() async {
     cachedCategories.clear();
@@ -297,7 +322,7 @@ class MagentoAPI {
     return [];
   }
 
-  // --- CART & USER (Keep previous implementation) ---
+  // --- UPDATED: GET CART ITEMS (With Image Fetch) ---
   Future<List<CartItem>?> getCartItems() async {
     final token = await _getCustomerToken();
     if (token == null) return [];
@@ -306,9 +331,33 @@ class MagentoAPI {
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
         List<CartItem> items = data.map((e) => CartItem.fromJson(e)).toList();
+
+        // Fetch images for server items
+        if (items.isNotEmpty) {
+           final skus = items.map((e) => e.sku).toList();
+           
+           // Fetch full product details for these SKUs
+           final products = await _fetchProductsBySkus(skus);
+           
+           // Map images back to cart items
+           items = items.map((item) {
+             final product = products.firstWhere(
+               (p) => p.sku == item.sku, 
+               orElse: () => Product(name: '', sku: '', price: 0, imageUrl: '', description: '')
+             );
+             
+             if (product.imageUrl.isNotEmpty) {
+               return item.copyWith(imageUrl: product.imageUrl);
+             }
+             return item;
+           }).toList();
+        }
+
         return items;
       } else if (response.statusCode == 401) return null;
-    } catch (e) {}
+    } catch (e) {
+      print("Get Cart Error: $e");
+    }
     return null;
   }
 
