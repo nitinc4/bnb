@@ -6,6 +6,7 @@ class Product {
   final double price;
   final String imageUrl;
   final String description;
+  final int attributeSetId; // Added for filtering logic
 
   Product({
     required this.name,
@@ -13,6 +14,7 @@ class Product {
     required this.price,
     required this.imageUrl,
     required this.description,
+    this.attributeSetId = 0,
   });
 
   Map<String, dynamic> toJson() {
@@ -22,6 +24,7 @@ class Product {
       'price': price,
       'imageUrl': imageUrl,
       'description': description,
+      'attribute_set_id': attributeSetId,
     };
   }
 
@@ -32,6 +35,7 @@ class Product {
       price: (json['price'] as num?)?.toDouble() ?? 0.0,
       imageUrl: json['imageUrl'] ?? '',
       description: json['description'] ?? '',
+      attributeSetId: json['attribute_set_id'] ?? 0,
     );
   }
 
@@ -66,6 +70,7 @@ class Product {
       price: (json['price'] ?? 0).toDouble(),
       imageUrl: fullImageUrl,
       description: desc,
+      attributeSetId: json['attribute_set_id'] ?? 0,
     );
   }
 }
@@ -220,7 +225,6 @@ class Order {
   }
 }
 
-// --- UPDATED: CART ITEM ---
 class CartItem {
   final int itemId;
   final String sku;
@@ -248,7 +252,7 @@ class CartItem {
       name: json['name'] ?? 'Unknown',
       price: (json['price'] as num?)?.toDouble() ?? 0.0,
       quoteId: json['quote_id']?.toString() ?? '',
-      imageUrl: json['image_url'], // May be null from API, filled locally
+      imageUrl: json['image_url'], 
     );
   }
 
@@ -264,10 +268,9 @@ class CartItem {
     };
   }
 
-  // Helper to create from Product (Guest Mode)
   factory CartItem.fromProduct(Product product, int quantity) {
     return CartItem(
-      itemId: DateTime.now().millisecondsSinceEpoch, // Temp ID
+      itemId: DateTime.now().millisecondsSinceEpoch, 
       sku: product.sku,
       qty: quantity,
       name: product.name,
@@ -286,6 +289,52 @@ class CartItem {
       price: price,
       quoteId: quoteId ?? this.quoteId,
       imageUrl: imageUrl ?? this.imageUrl,
+    );
+  }
+}
+
+// --- NEW CLASSES FOR FILTERS ---
+
+class AttributeOption {
+  final String label;
+  final String value;
+
+  AttributeOption({required this.label, required this.value});
+
+  factory AttributeOption.fromJson(Map<String, dynamic> json) {
+    return AttributeOption(
+      label: json['label']?.toString() ?? '',
+      value: json['value']?.toString() ?? '',
+    );
+  }
+}
+
+class ProductAttribute {
+  final String code;
+  final String label;
+  final String frontendInput;
+  final List<AttributeOption> options;
+
+  ProductAttribute({
+    required this.code,
+    required this.label,
+    required this.frontendInput,
+    required this.options,
+  });
+
+  factory ProductAttribute.fromJson(Map<String, dynamic> json) {
+    List<AttributeOption> opts = [];
+    if (json['options'] != null) {
+      opts = (json['options'] as List)
+          .map((e) => AttributeOption.fromJson(e))
+          .where((o) => o.value.isNotEmpty)
+          .toList();
+    }
+    return ProductAttribute(
+      code: json['attribute_code'] ?? '',
+      label: json['default_frontend_label'] ?? json['attribute_code'] ?? '',
+      frontendInput: json['frontend_input'] ?? 'text',
+      options: opts,
     );
   }
 }

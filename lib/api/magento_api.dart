@@ -15,6 +15,47 @@ class MagentoAPI {
   static Map<String, Category> _detailsCache = {};
   static Map<String, dynamic>? cachedUser; 
 
+  // 1. Exclude by strict Attribute Code (Technical IDs)
+  static const List<String> _excludedAttributeCodes = [
+    "ship_bundle_items",
+    "page_layout",
+    "gift_message_available",
+    "tax_class_id",
+    "options_container",
+    "custom_layout_update",
+    "custom_design",
+    "msrp_display_actual_price_type",
+    "custom_layout",
+    "price_view",
+    "status",
+    "quantity_and_stock_status",
+    "visibility",
+    "country_of_manufacture",
+    "gst_rate",
+    "layout",
+    "enable_product"
+  ];
+
+  // 2. Exclude by Label (User provided list)
+  static const List<String> _excludedAttributeLabels = [
+    "ship bundle items", 
+    "layout", 
+    "allow gift message", 
+    "gst rate", 
+    "display product option in", 
+    "custom layout update", 
+    "new theme", 
+    "to apply on products below minimum set price", 
+    "new layout", 
+    "display price", 
+    "price view", 
+    "enable product", 
+    "tax class", 
+    "quantity", 
+    "visibility", 
+    "country of manufacture"
+  ];
+
   MagentoAPI() {
     _oauthClient = MagentoOAuthClient(
       baseUrl: "$baseUrl/rest/V1",
@@ -25,10 +66,20 @@ class MagentoAPI {
     );
   }
 
-  // --- MODIFIED: FETCH PRODUCTS WITH PAGINATION ---
-  Future<List<Product>> fetchProducts({int? categoryId, int page = 1, int pageSize = 20}) async {
-    // Only use cache for the very first page of "Featured Products" to keep Home fast
-    if (categoryId == null && page == 1 && cachedProducts.isNotEmpty) return cachedProducts;
+  // --- MODIFIED: FETCH PRODUCTS WITH PAGINATION AND FILTERS ---
+  Future<List<Product>> fetchProducts({
+    int? categoryId, 
+    int page = 1, 
+    int pageSize = 20,
+    Map<String, dynamic>? filters,
+    String? sortField,     // New: Field to sort by (e.g., 'price', 'name')
+    String? sortDirection, // New: Direction 'ASC' or 'DESC'
+  }) async {
+    // Only use cache for the very first page of "Featured Products" if no filters
+    bool isDefaultSort = sortField == null;
+    if (categoryId == null && page == 1 && (filters == null || filters.isEmpty) && cachedProducts.isNotEmpty) {
+      return cachedProducts;
+    }
     
     try {
       // Base Params for Pagination
@@ -37,13 +88,31 @@ class MagentoAPI {
         "searchCriteria[currentPage]": page.toString(),
       };
 
+      int groupIndex = 0;
+
       // Add Category Filter if provided
       if (categoryId != null) {
-        queryParams["searchCriteria[filter_groups][0][filters][0][field]"] = "category_id";
-        queryParams["searchCriteria[filter_groups][0][filters][0][value]"] = "$categoryId";
-        queryParams["searchCriteria[filter_groups][0][filters][0][condition_type]"] = "eq";
+        queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][field]"] = "category_id";
+        queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][value]"] = "$categoryId";
+        queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][condition_type]"] = "eq";
+        groupIndex++;
       }
 
+      // Add Custom Filters
+      if (filters != null) {
+        filters.forEach((key, value) {
+          queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][field]"] = key;
+          queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][value]"] = value.toString();
+          queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][condition_type]"] = "eq";
+          groupIndex++;
+        });
+      }
+
+      // Add Sorting
+      if (sortField != null && sortDirection != null) {
+        queryParams["searchCriteria[sortOrders][0][field]"] = sortField;
+        queryParams["searchCriteria[sortOrders][0][direction]"] = sortDirection;
+      }
       final response = await _oauthClient.get("/products", params: queryParams);
       
       if (response.statusCode == 200) {
@@ -51,8 +120,8 @@ class MagentoAPI {
         final items = data["items"] as List? ?? [];
         final products = items.map((json) => Product.fromJson(json)).toList();
 
-        // Cache only the first page of "All Products" for the Home Screen
-        if (categoryId == null && page == 1) {
+        // Cache only the first page of "All Products" for the Home Screen if no filters
+        if (categoryId == null && page == 1 && (filters == null || filters.isEmpty)) {
           cachedProducts = products;
           final prefs = await SharedPreferences.getInstance();
           prefs.setString('cached_products_data', jsonEncode(products.map((e) => e.toJson()).toList()));
@@ -61,6 +130,71 @@ class MagentoAPI {
       }
     } catch (e) {
       print("Fetch Products Error: $e");
+    }
+    return [];
+  }
+
+  // --- NEW: FETCH ATTRIBUTES BY SET ID (For Sub Categories) ---
+  Future<List<ProductAttribute>> fetchAttributesBySet(int attributeSetId) async {
+    try {
+      final response = await _oauthClient.get("/products/attribute-sets/$attributeSetId/attributes");
+      if (response.statusCode == 200) {
+        final List data = jsonDecode(response.body);
+        return data
+            .map((e) => ProductAttribute.fromJson(e))
+            .where((attr) {
+              // 1. Must be select/multiselect
+              final isSelect = attr.frontendInput == 'select' || attr.frontendInput == 'multiselect';
+              
+              // 2. Must have options
+              final hasOptions = attr.options.isNotEmpty;
+              
+              // 3. Normalization for comparison
+              final labelLower = attr.label.toLowerCase().trim();
+              final codeLower = attr.code.toLowerCase().trim();
+              final codeHumanized = codeLower.replaceAll('_', ' '); // e.g. "tax_class_id" -> "tax class id"
+
+              // 4. Check against Excluded Labels
+              final isLabelExcluded = _excludedAttributeLabels.any((ex) => 
+                  labelLower == ex.toLowerCase().trim() || // Exact label match
+                  codeHumanized.contains(ex.toLowerCase().trim()) // Code contains exclusion string (e.g. "tax class" in "tax class id")
+              );
+
+              // 5. Check against Excluded Codes
+              final isCodeExcluded = _excludedAttributeCodes.contains(codeLower);
+
+              return isSelect && hasOptions && !isLabelExcluded && !isCodeExcluded;
+            })
+            .toList();
+      }
+    } catch (e) {
+      print("Fetch Attributes Error: $e");
+    }
+    return [];
+  }
+
+  // --- NEW: FETCH ALL FILTERABLE ATTRIBUTES (For All Products Page) ---
+  Future<List<ProductAttribute>> fetchGlobalFilterableAttributes() async {
+    try {
+      // Fetch attributes where is_filterable = 1 (Use in Layered Navigation)
+      final queryParams = {
+        "searchCriteria[filter_groups][0][filters][0][field]": "is_filterable",
+        "searchCriteria[filter_groups][0][filters][0][value]": "1",
+        "searchCriteria[filter_groups][0][filters][0][condition_type]": "eq",
+      };
+      
+      final response = await _oauthClient.get("/products/attributes", params: queryParams);
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final items = data['items'] as List? ?? [];
+        return items
+            .map((e) => ProductAttribute.fromJson(e))
+            .where((attr) => (attr.frontendInput == 'select' || attr.frontendInput == 'multiselect') && attr.options.isNotEmpty)
+            .toList();
+      }
+    } catch (e) {
+      print("Fetch Global Attributes Error: $e");
     }
     return [];
   }
@@ -173,7 +307,6 @@ class MagentoAPI {
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
         List<CartItem> items = data.map((e) => CartItem.fromJson(e)).toList();
-        // Enrich images logic...
         return items;
       } else if (response.statusCode == 401) return null;
     } catch (e) {}

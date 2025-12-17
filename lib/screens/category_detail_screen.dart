@@ -14,10 +14,22 @@ class CategoryDetailScreen extends StatefulWidget {
 }
 
 class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
-  late Future<List<Product>> _productsFuture;
   final MagentoAPI _api = MagentoAPI();
   late List<Category> _subCategories;
   bool _isLoadingSubCats = false;
+
+  // Product List State
+  List<Product> _products = [];
+  bool _isLoadingProducts = true;
+  
+  // Filter State
+  List<ProductAttribute> _filterAttributes = [];
+  final Map<String, dynamic> _activeFilters = {};
+
+// Sorting State
+  String? _sortField; 
+  String? _sortDirection; 
+  String _sortLabel = 'Relevance';
 
   @override
   void initState() {
@@ -26,7 +38,7 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
     if (_subCategories.isNotEmpty) {
       _enrichSubCategories();
     } else {
-      _productsFuture = _api.fetchProducts(categoryId: widget.category.id);
+      _fetchProducts();
     }
   }
 
@@ -41,21 +53,179 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
     if (mounted) setState(() => _isLoadingSubCats = false);
   }
 
-  Future<void> _onRefresh() async {
-    // Re-fetch products or re-enrich subcats
-    if (_subCategories.isEmpty) {
+  Future<void> _fetchProducts() async {
+    if (mounted) setState(() => _isLoadingProducts = true);
+    
+    final products = await _api.fetchProducts(
+      categoryId: widget.category.id,
+      filters: _activeFilters.isNotEmpty ? _activeFilters : null,
+    );
+
+    if (mounted) {
       setState(() {
-        _productsFuture = _api.fetchProducts(categoryId: widget.category.id);
+        _products = products;
+        _isLoadingProducts = false;
       });
-    } else {
-      // Force enrich again (maybe images changed)
+
+      // Link specific attribute set to the sub category dynamically
+      // If we haven't fetched attributes yet, and we have products, find the attribute set.
+      if (_filterAttributes.isEmpty && products.isNotEmpty) {
+        final attributeSetId = products.first.attributeSetId;
+        if (attributeSetId > 0) {
+          _fetchAttributes(attributeSetId);
+        }
+      }
+    }
+  }
+
+  Future<void> _fetchAttributes(int attributeSetId) async {
+    final attrs = await _api.fetchAttributesBySet(attributeSetId);
+    if (mounted) {
+      setState(() {
+        _filterAttributes = attrs;
+      });
+    }
+  }
+
+  Future<void> _onRefresh() async {
+    if (_subCategories.isNotEmpty) {
       setState(() => _isLoadingSubCats = true);
       try {
          final enriched = await _api.enrichCategories(_subCategories);
          if (mounted) setState(() => _subCategories = enriched);
       } catch (e) {}
       if (mounted) setState(() => _isLoadingSubCats = false);
+    } else {
+      // Clear filters on pull to refresh? Optional. Let's keep them.
+      await _fetchProducts();
     }
+  }
+
+  void _showFilterDialog() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.6,
+              maxChildSize: 0.9,
+              minChildSize: 0.4,
+              builder: (_, controller) {
+                return Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text("Filter Products", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          TextButton(
+                            onPressed: () {
+                              setState(() => _activeFilters.clear());
+                              Navigator.pop(context);
+                              _fetchProducts();
+                            },
+                            child: const Text("Clear All"),
+                          )
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        controller: controller,
+                        itemCount: _filterAttributes.length,
+                        itemBuilder: (context, index) {
+                          final attr = _filterAttributes[index];
+                          return ExpansionTile(
+                            title: Text(attr.label, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            children: attr.options.map((option) {
+                              final isSelected = _activeFilters[attr.code] == option.value;
+                              return RadioListTile<String>(
+                                title: Text(option.label),
+                                value: option.value,
+                                groupValue: _activeFilters[attr.code],
+                                onChanged: (val) {
+                                  setState(() {
+                                    if (val != null) _activeFilters[attr.code] = val;
+                                  });
+                                  setModalState(() {}); // Update modal UI
+                                },
+                                activeColor: const Color(0xFF00599c),
+                              );
+                            }).toList(),
+                          );
+                        },
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c)),
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _fetchProducts();
+                          },
+                          child: const Text("Apply Filters", style: TextStyle(color: Colors.white)),
+                        ),
+                      ),
+                    )
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  
+void _showSortDialog() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text("Sort By", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ),
+            _buildSortOption("Relevance", null, null),
+            _buildSortOption("Price: Low to High", "price", "ASC"),
+            _buildSortOption("Price: High to Low", "price", "DESC"),
+            _buildSortOption("Name: A to Z", "name", "ASC"),
+            _buildSortOption("Name: Z to A", "name", "DESC"),
+            const SizedBox(height: 20),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildSortOption(String label, String? field, String? dir) {
+    bool isSelected = _sortLabel == label;
+    return ListTile(
+      leading: Icon(isSelected ? Icons.check_circle : Icons.radio_button_unchecked, color: isSelected ? const Color(0xFF00599c) : Colors.grey),
+      title: Text(label, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+      onTap: () {
+        setState(() {
+          _sortField = field;
+          _sortDirection = dir;
+          _sortLabel = label;
+        });
+        Navigator.pop(context); 
+        _fetchProducts();
+      },
+    );
   }
 
   @override
@@ -69,6 +239,35 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         iconTheme: const IconThemeData(color: Color(0xFF00599c)),
+        actions: [
+          // Show Sort & Filter only when products are visible (not subcategories)
+          if (!hasSubCategories) ...[
+            IconButton(
+              icon: const Icon(Icons.sort),
+              onPressed: _showSortDialog,
+              tooltip: "Sort",
+            ),
+            if (_filterAttributes.isNotEmpty)
+              IconButton(
+                icon: Stack(
+                  children: [
+                    const Icon(Icons.filter_list),
+                    if (_activeFilters.isNotEmpty)
+                      Positioned(
+                        right: 0, top: 0,
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                          constraints: const BoxConstraints(minWidth: 8, minHeight: 8),
+                        ),
+                      )
+                  ],
+                ),
+                onPressed: _showFilterDialog,
+                tooltip: "Filter",
+              ),
+          ]
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _onRefresh,
@@ -105,25 +304,19 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
   }
 
   Widget _buildProductGrid() {
-    return FutureBuilder<List<Product>>(
-      future: _productsFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-        if (!snapshot.hasData || snapshot.data!.isEmpty) return const Center(child: Text("No products found"));
+    if (_isLoadingProducts) return const Center(child: CircularProgressIndicator(color: Color(0xFF00599c)));
+    if (_products.isEmpty) return const Center(child: Text("No products found"));
 
-        final products = snapshot.data!;
-        return GridView.builder(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(12),
-          itemCount: products.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 0.7),
-          itemBuilder: (context, index) {
-            final product = products[index];
-            return GestureDetector(
-              onTap: () => Navigator.pushNamed(context, '/productDetail', arguments: product),
-              child: ProductCard(name: product.name, price: product.price.toStringAsFixed(2), imageUrl: product.imageUrl),
-            );
-          },
+    return GridView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(12),
+      itemCount: _products.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 0.7),
+      itemBuilder: (context, index) {
+        final product = _products[index];
+        return GestureDetector(
+          onTap: () => Navigator.pushNamed(context, '/productDetail', arguments: product),
+          child: ProductCard(name: product.name, price: product.price.toStringAsFixed(2), imageUrl: product.imageUrl),
         );
       },
     );
