@@ -1,3 +1,4 @@
+// lib/screens/website_webview_screen.dart
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
@@ -26,13 +27,15 @@ class _WebsiteWebViewScreenState extends State<WebsiteWebViewScreen> {
     // 1. Initialize Controller
     _controller = WebViewController()
       // 2. Configure JavaScript Mode
-      // Unrestricted is usually required for modern e-commerce sites
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       
-      // 3. Set Background Color (prevents white flash)
+      // 3. Set Background Color
       ..setBackgroundColor(const Color(0x00000000))
+
+      // 4. Enable Zoom (Fix for non-mobile optimized sites)
+      ..enableZoom(true)
       
-      // 4. Implement Navigation Delegate for Security
+      // 5. Implement Navigation Delegate
       ..setNavigationDelegate(
         NavigationDelegate(
           onProgress: (int progress) {
@@ -47,18 +50,19 @@ class _WebsiteWebViewScreenState extends State<WebsiteWebViewScreen> {
           
           // CRITICAL SECURITY FEATURE: Navigation Restriction
           onNavigationRequest: (NavigationRequest request) {
-            // Only allow navigation to your own domain
+            // Only allow navigation to your own domain and RFQ subdomain
             if (request.url.startsWith('https://buynutbolts.com') || 
-                request.url.startsWith('https://www.buynutbolts.com')) {
+                request.url.startsWith('https://www.buynutbolts.com') ||
+                request.url.startsWith('https://rfq.buynutbolts.com')) { 
               return NavigationDecision.navigate;
             }
             
-            // Allow payment gateways if necessary (e.g., razorpay, paypal)
+            // Allow payment gateways if necessary
             if (request.url.contains('razorpay.com')) {
                return NavigationDecision.navigate;
             }
 
-            // Block everything else (ads, malicious redirects, etc.)
+            // Block everything else
             debugPrint('Blocking navigation to: ${request.url}');
             return NavigationDecision.prevent;
           },
@@ -76,7 +80,6 @@ class _WebsiteWebViewScreenState extends State<WebsiteWebViewScreen> {
         elevation: 1,
         iconTheme: const IconThemeData(color: Color(0xFF00599c)),
         actions: [
-          // Navigation Controls
           IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () async {

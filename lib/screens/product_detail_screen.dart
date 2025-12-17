@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/magento_models.dart';
 import '../providers/cart_provider.dart';
 import '../api/magento_api.dart';
+import 'website_webview_screen.dart'; // Import WebView Screen
 
 class ProductDetailScreen extends StatefulWidget {
   final Product product;
@@ -41,6 +42,27 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   Future<void> _onRefresh() async {
     await _fetchFullDetails();
+  }
+
+  // --- NEW: Open RFQ Webview ---
+  void _openRFQ() {
+    // Construct URL with parameters
+    final String rfqUrl = "https://rfq.buynutbolts.com/rfq.php"
+        "?sku=${Uri.encodeComponent(_currentProduct.sku)}"
+        "&name=${Uri.encodeComponent(_currentProduct.name)}"
+        "&part=${Uri.encodeComponent(_currentProduct.sku)}"
+        "&qty=1"
+        "&url=${Uri.encodeComponent('https://buynutbolts.com')}"; // Fallback URL since slug is missing
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => WebsiteWebViewScreen(
+          url: rfqUrl,
+          title: "Request Quote",
+        ),
+      ),
+    );
   }
 
   @override
@@ -90,9 +112,24 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     Text(_currentProduct.name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     Text("SKU: ${_currentProduct.sku}", style: TextStyle(color: Colors.grey.shade600)),
+                    
+                    // --- NEW: RFQ Button ---
                     const SizedBox(height: 16),
-                    // Price moved to bottom bar, removed from here or kept as backup
-                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _openRFQ,
+                        icon: const Icon(Icons.request_quote, color: Color(0xFF00599c)),
+                        label: const Text("Request for Quote (Bulk Order)", style: TextStyle(color: Color(0xFF00599c), fontWeight: FontWeight.bold)),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          side: const BorderSide(color: Color(0xFF00599c)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
                     const Text("Description", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 8),
                     if (_isLoadingDetails) 
