@@ -18,7 +18,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   late Animation<double> _animation;
   
   static const String _configEndpoint = 
-      'https://gist.githubusercontent.com/nitinc4/857f9007c5fed4ec2bae8decaf32c9f3/raw';
+      'https://gist.githubusercontent.com/nitinc4/857f9007c5fed4ec2bae8decaf32c9f3/raw';//Encrypted code
   static const String _requiredSignature = 
       "fcc7c54d2cce94f7b62bda253ff061f9473c390b1fb060af316cc3f7f2553b80";
 
