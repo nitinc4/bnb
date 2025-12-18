@@ -42,7 +42,7 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
 
-    // Debounce to avoid API spam (Real-time suggestions)
+    // Debounce to avoid API spam 
     _debounce = Timer(const Duration(milliseconds: 500), () async {
       final suggestions = await _api.getSearchSuggestions(query);
       if (mounted) {
@@ -109,7 +109,7 @@ class _SearchScreenState extends State<SearchScreen> {
       return const Center(child: CircularProgressIndicator(color: Color(0xFF00599c)));
     }
 
-    // 1. Show Suggestions (Auto-complete)
+    // Show Suggestions 
     if (!_isSubmitted && _suggestions.isNotEmpty) {
       return ListView.builder(
         itemCount: _suggestions.length,
@@ -135,7 +135,7 @@ class _SearchScreenState extends State<SearchScreen> {
       );
     }
 
-    // 2. Show Full Results (Grid)
+    // Show Full Results (Grid)
     if (_isSubmitted) {
       if (_results.isEmpty) {
         return Center(

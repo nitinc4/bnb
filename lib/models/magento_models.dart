@@ -6,7 +6,7 @@ class Product {
   final double price;
   final String imageUrl;
   final String description;
-  final int attributeSetId; // Added for filtering logic
+  final int attributeSetId; 
 
   Product({
     required this.name,
@@ -293,7 +293,7 @@ class CartItem {
   }
 }
 
-// --- NEW CLASSES FOR FILTERS ---
+//NEW CLASSES FOR FILTERS
 
 class AttributeOption {
   final String label;

@@ -34,7 +34,7 @@ class _CartScreenState extends State<CartScreen> {
 
     if (token != null && token.isNotEmpty) {
       // Navigate to Website Checkout. 
-      // Since we performed a background web login, the session cookies should already be set!
+      
       Navigator.push(
         context, 
         MaterialPageRoute(

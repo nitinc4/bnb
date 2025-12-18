@@ -209,8 +209,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Featured Products', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF00599c))),
-                  
-                  // --- SEE ALL BUTTON FIX ---
                   TextButton(
                     onPressed: () {
                       Navigator.push(context, MaterialPageRoute(builder: (_) => const AllProductsScreen()));

@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/magento_models.dart';
 import '../providers/cart_provider.dart';
 import '../api/magento_api.dart';
-import 'website_webview_screen.dart'; // Import WebView Screen
+import 'website_webview_screen.dart'; 
 
 class ProductDetailScreen extends StatefulWidget {
   final Product product;
@@ -44,7 +44,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     await _fetchFullDetails();
   }
 
-  // --- NEW: Open RFQ Webview ---
+  // --- Open RFQ Webview ---
   void _openRFQ() {
     // Construct URL with parameters
     final String rfqUrl = "https://rfq.buynutbolts.com/rfq.php"
@@ -113,7 +113,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     const SizedBox(height: 8),
                     Text("SKU: ${_currentProduct.sku}", style: TextStyle(color: Colors.grey.shade600)),
                     
-                    // --- NEW: RFQ Button ---
+                    // --- RFQ Button ---
                     const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
@@ -150,7 +150,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         child: SafeArea(
           child: Row(
             children: [
-              // 1. PRICE (Left)
               Expanded(
                 flex: 2,
                 child: Column(
@@ -163,7 +162,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 ),
               ),
               
-              // 2. ACTION BUTTON (Right)
               Expanded(
                 flex: 3,
                 child: Consumer<CartProvider>(

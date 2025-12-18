@@ -19,7 +19,6 @@ Future<void> main() async {
   await dotenv.load(fileName: ".env");
 
   runApp(
-    // 1. Wrap App in Provider for Real-time Cart
     ChangeNotifierProvider(
       create: (context) => CartProvider(),
       child: const MyApp(),
@@ -62,7 +61,6 @@ class MyApp extends StatelessWidget {
       },
       onGenerateRoute: (settings) {
         if (settings.name == '/productDetail') {
-          // 2. FIX: Cast to Product, not Map
           final product = settings.arguments as Product;
           return MaterialPageRoute(
             builder: (context) => ProductDetailScreen(product: product),

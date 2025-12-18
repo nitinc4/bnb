@@ -34,33 +34,33 @@ class CartProvider with ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    // 1. Always load local cache first for speed (Optimistic)
+    // Always load local cache first for speed 
     await _loadLocalCart();
     
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('customer_token');
 
     if (token != null) {
-      // 2. LOGGED IN? Check if we have guest items to merge
+      // LOGGED IN? Check if we have guest items to merge
       await _mergeGuestItems(token);
 
-      // 3. Sync with Server
+      // Sync with Server
       final serverItems = await _api.getCartItems();
       
       if (serverItems == null) {
         // TOKEN EXPIRED OR ERROR -> Fallback to Guest
-        debugPrint("⚠️ Token Invalid/Expired. Reverting to Guest Mode.");
+        debugPrint(" Token Invalid/Expired. Reverting to Guest Mode.");
         await prefs.remove('customer_token');
         await prefs.remove('cached_user_data');
         MagentoAPI.cachedUser = null;
         
-        // We already loaded local cart in step 1, so just notify and stop
+        
       } else {
-        // 4. Merge Server Items with Local Images
+        // Merge Server Items with Local Images
         final mergedList = _mergeServerWithLocalImages(serverItems, _items);
         _items = mergedList;
         
-        // 5. Save the authoritative list locally for next time
+        // Save the authoritative list locally for next time
         await _saveLocalCart();
       }
     } 
@@ -74,7 +74,7 @@ class CartProvider with ChangeNotifier {
     if (_items.isNotEmpty) {
       final guestItems = _items.where((i) => i.quoteId == 'guest_local').toList();
       if (guestItems.isNotEmpty) {
-        debugPrint("🔄 Merging ${guestItems.length} Guest Items to Server...");
+        debugPrint("Merging ${guestItems.length} Guest Items to Server...");
         for (var item in guestItems) {
           await _api.addToCart(item.sku, item.qty);
         }

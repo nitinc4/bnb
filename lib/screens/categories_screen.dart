@@ -12,14 +12,11 @@ class CategoriesScreen extends StatefulWidget {
 }
 
 class _CategoriesScreenState extends State<CategoriesScreen> {
-  // We use a future here just to signal UI rebuilds, data comes from cache/network
   Future<void>? _refreshFuture;
 
   Future<void> _handleRefresh() async {
     await MagentoAPI().clearCache();
     setState(() {
-      // Trigger a re-fetch in the background or just setState to rebuild
-      // Since fetchCategories handles cache internally, calling it again updates it
       _refreshFuture = MagentoAPI().fetchCategories(); 
     });
     await _refreshFuture;
@@ -27,7 +24,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // If we are just entering, we use cached data. If refreshing, we wait.
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(

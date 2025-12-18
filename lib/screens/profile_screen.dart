@@ -42,16 +42,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (token != null && token.isNotEmpty) {
       final api = MagentoAPI();
       
-      // 1. Fetch User Data
+      // Fetch User Data
       final userData = await api.fetchCustomerDetails(token);
       
-      // 2. CHECK FOR EXPIRY: If data is null, token is dead.
+      // CHECK FOR EXPIRY: If data is null, token is dead.
       if (userData == null) {
         _logout(); // Auto-logout if session expired
         return; 
       }
 
-      // 3. Fetch Orders if valid
+      // Fetch Orders if valid
       List<Order> orders = [];
       if (userData['email'] != null) {
         orders = await api.fetchOrders(userData['email']);

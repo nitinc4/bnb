@@ -44,13 +44,13 @@ class _LoginScreenState extends State<LoginScreen> {
     _bgWebController = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setOnConsoleMessage((message) {
-         // debugPrint("🌐 [WebView Console]: ${message.message}");
+      debugPrint("[WebView Console]: ${message.message}");
       })
       ..addJavaScriptChannel(
         'LoginChannel',
         onMessageReceived: (JavaScriptMessage message) {
           if (message.message == 'success') {
-            debugPrint("🚀 [JS Channel] Success Signal Received!");
+            debugPrint("[JS Channel] Success Signal Received!");
             _onWebLoginSuccess();
           }
         },
@@ -62,15 +62,11 @@ class _LoginScreenState extends State<LoginScreen> {
           },
           onPageFinished: (String url) {
             if (_isSyncingWebSession) {
-               // 1. Check Success via URL
+               
                if (_checkLoginSuccess(url)) return; 
-
-               // 2. Always inject the Success Monitor (handles redirects)
                _startSuccessMonitor();
-
-               // 3. Inject Credentials if on Login Page
                if (url.contains('/customer/account/login') && !_hasAttemptedInjection) {
-                 debugPrint("🌐 [WebView] Login page loaded. Starting injection...");
+                 debugPrint(" [WebView] Login page loaded. Starting injection...");
                  _hasAttemptedInjection = true; 
                  _injectLoginCredentials();
                }
@@ -86,14 +82,13 @@ class _LoginScreenState extends State<LoginScreen> {
     bool isCheckout = url.contains('/checkout/'); 
 
     if (isDashboard || isHome || isCheckout) {
-       debugPrint("✅ [WebView] Login Success Detected! URL: $url");
+       debugPrint(" [WebView] Login Success Detected! URL: $url");
        _onWebLoginSuccess();
        return true;
     }
     return false;
   }
 
-  // --- NEW: Persistent Monitor Script ---
   void _startSuccessMonitor() {
     _bgWebController.runJavaScript("""
       (function() {
@@ -126,7 +121,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     _bgWebController.runJavaScript("""
       (function() {
-        console.log("🔥 Starting Auto-Login Script...");
+        console.log(" Starting Auto-Login Script...");
         var attempts = 0;
 
         function tryLogin() {
@@ -139,7 +134,7 @@ class _LoginScreenState extends State<LoginScreen> {
           var btn = document.getElementById('send2') || document.querySelector('button.action.login.primary');
 
           if (emailInput && passInput) {
-             console.log("✅ Inputs found.");
+             console.log("Inputs found.");
 
              // Fill & Trigger Events
              emailInput.value = '$email';
@@ -176,7 +171,7 @@ class _LoginScreenState extends State<LoginScreen> {
     
     setState(() { _isSyncingWebSession = false; });
 
-    debugPrint("🚀 [App] Synced. Navigating Home.");
+    debugPrint("[App] Synced. Navigating Home.");
     Navigator.pushReplacementNamed(context, '/home');
   }
 
@@ -190,13 +185,13 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     setState(() => _isLoading = true);
-    debugPrint("🔑 [App] Starting API Login...");
+    debugPrint("[App] Starting API Login...");
 
     final api = MagentoAPI();
     final token = await api.loginCustomer(email, password);
 
     if (token != null) {
-      debugPrint("✅ [App] API Login Success.");
+      debugPrint("[App] API Login Success.");
       
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('customer_token', token);
@@ -214,7 +209,7 @@ class _LoginScreenState extends State<LoginScreen> {
         final cookieManager = WebViewCookieManager();
         await cookieManager.clearCookies();
 
-        debugPrint("🌐 [App] Loading Website Login...");
+        debugPrint("[App] Loading Website Login...");
         _bgWebController.loadRequest(Uri.parse('https://buynutbolts.com/customer/account/login/'));
         
         // Backup Poller
@@ -228,13 +223,13 @@ class _LoginScreenState extends State<LoginScreen> {
         // 15s Timeout
         Future.delayed(const Duration(seconds: 15), () {
           if (mounted && _isSyncingWebSession) {
-             debugPrint("⚠️ [App] Web sync timed out. Proceeding.");
+             debugPrint("[App] Web sync timed out. Proceeding.");
              _onWebLoginSuccess();
           }
         });
       }
     } else {
-      debugPrint("❌ [App] API Login Failed.");
+      debugPrint("[App] API Login Failed.");
       if (mounted) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invalid Credentials")));
@@ -293,7 +288,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text("Welcome Back", style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700, color: Color(0xFF00599c))),
+                        const Text("Welcome", style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700, color: Color(0xFF00599c))),
                         const SizedBox(height: 6),
                         Text(
                           _isSyncingWebSession ? "Syncing session..." : "Login to continue", 
@@ -306,10 +301,7 @@ class _LoginScreenState extends State<LoginScreen> {
                              children: [
                                const CircularProgressIndicator(color: Color(0xFF00599c)),
                                const SizedBox(height: 16),
-                               TextButton(
-                                 onPressed: _onWebLoginSuccess, 
-                                 child: const Text("Skip waiting", style: TextStyle(color: Colors.black54)),
-                               )
+                               
                              ],
                            )
                         else ...[

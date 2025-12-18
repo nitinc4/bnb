@@ -15,8 +15,6 @@ class ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // REMOVED InkWell here. 
-    // Now the GestureDetector in HomeScreen/CategoryDetailScreen will receive the tap.
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -39,7 +37,6 @@ class ProductCard extends StatelessWidget {
                 imageUrl: imageUrl,
                 fit: BoxFit.cover,
                 width: double.infinity,
-                // Added a consistent error widget just in case
                 placeholder: (context, url) => Container(color: Colors.grey.shade100),
                 errorWidget: (context, url, error) => Container(
                   color: Colors.grey.shade200,

@@ -9,7 +9,7 @@ class WebsiteWebViewScreen extends StatefulWidget {
   const WebsiteWebViewScreen({
     super.key, 
     this.url = 'https://buynutbolts.com', 
-    this.title = 'BNB Website'
+    this.title = 'BuyNutBolts Website',
   });
 
   @override
@@ -24,18 +24,18 @@ class _WebsiteWebViewScreenState extends State<WebsiteWebViewScreen> {
   void initState() {
     super.initState();
 
-    // 1. Initialize Controller
+    // Initialize Controller
     _controller = WebViewController()
-      // 2. Configure JavaScript Mode
+      //Configure JavaScript Mode
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       
-      // 3. Set Background Color
+      // Set Background Color
       ..setBackgroundColor(const Color(0x00000000))
 
-      // 4. Enable Zoom (Fix for non-mobile optimized sites)
+      // Enable Zoom (Fix for non-mobile optimized sites)
       ..enableZoom(true)
       
-      // 5. Implement Navigation Delegate
+      // Implement Navigation Delegate
       ..setNavigationDelegate(
         NavigationDelegate(
           onProgress: (int progress) {
@@ -50,14 +50,14 @@ class _WebsiteWebViewScreenState extends State<WebsiteWebViewScreen> {
           
           // CRITICAL SECURITY FEATURE: Navigation Restriction
           onNavigationRequest: (NavigationRequest request) {
-            // Only allow navigation to your own domain and RFQ subdomain
+            // Only website domain and RFQ subdomain allowed
             if (request.url.startsWith('https://buynutbolts.com') || 
                 request.url.startsWith('https://www.buynutbolts.com') ||
                 request.url.startsWith('https://rfq.buynutbolts.com')) { 
               return NavigationDecision.navigate;
             }
             
-            // Allow payment gateways if necessary
+            // Allow payment gateways
             if (request.url.contains('razorpay.com') || 
                 request.url.contains('paypal.com')) {
                return NavigationDecision.navigate;

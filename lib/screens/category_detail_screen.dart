@@ -72,7 +72,6 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
       });
 
       // Link specific attribute set to the sub category dynamically
-      // If we haven't fetched attributes yet, and we have products, find the attribute set.
       if (_filterAttributes.isEmpty && products.isNotEmpty) {
         final attributeSetId = products.first.attributeSetId;
         if (attributeSetId > 0) {
@@ -102,7 +101,7 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
       }
       if (mounted) setState(() => _isLoadingSubCats = false);
     } else {
-      // Clear filters on pull to refresh? Optional. Let's keep them.
+      // Clear filters on pull to refresh
       await _fetchProducts();
     }
   }

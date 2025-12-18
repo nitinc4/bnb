@@ -31,11 +31,11 @@ class _AppDrawerState extends State<AppDrawer> {
     final token = prefs.getString('customer_token');
 
     if (token != null) {
-      // 1. Try Memory Cache (Fastest - Immediate)
+      // Try Memory Cache (Fastest - Immediate)
       if (MagentoAPI.cachedUser != null) {
         _updateUi(MagentoAPI.cachedUser!);
       } 
-      // 2. Try Disk Cache (Fast - persisted across restarts)
+      // Try Disk Cache (Fast - persisted across restarts)
       else if (prefs.containsKey('cached_user_data')) {
         try {
           final data = jsonDecode(prefs.getString('cached_user_data')!);
@@ -46,8 +46,7 @@ class _AppDrawerState extends State<AppDrawer> {
         }
       }
 
-      // 3. Background Refresh (Slow, but ensures data is fresh)
-      // This runs silently. UI updates only if data changed.
+      // 3. Background Refresh 
       try {
         final api = MagentoAPI();
         final user = await api.fetchCustomerDetails(token);
@@ -70,7 +69,6 @@ class _AppDrawerState extends State<AppDrawer> {
 
   @override
   Widget build(BuildContext context) {
-    // Uses the static cache we built in Splash Screen
     final categories = MagentoAPI.cachedCategories;
 
     return Drawer(
@@ -170,7 +168,6 @@ class _AppDrawerState extends State<AppDrawer> {
   }
 
   Widget _buildCategoryTile(BuildContext context, Category category) {
-    // If it has subcategories, use ExpansionTile
     if (category.children.isNotEmpty) {
       return ExpansionTile(
         leading: const Icon(Icons.circle, size: 8, color: Color(0xFF00599c)),
@@ -179,7 +176,6 @@ class _AppDrawerState extends State<AppDrawer> {
         children: category.children.map((child) => _buildCategoryTile(context, child)).toList(),
       );
     } 
-    // If it's a final category, navigate to details
     else {
       return ListTile(
         title: Text(category.name, style: const TextStyle(fontSize: 14)),

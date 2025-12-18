@@ -43,14 +43,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     setState(() => _isLoading = true);
     final api = MagentoAPI();
 
-    // 1. Update Profile (Name/Email)
+    // Update Profile (Name/Email)
     bool profileSuccess = await api.updateCustomerProfile({
       "firstname": _fNameCtrl.text,
       "lastname": _lNameCtrl.text,
       "email": _emailCtrl.text,
     });
 
-    // 2. Change Password (if requested)
+    // Change Password 
     bool passSuccess = true;
     if (_changePassword) {
       if (_newPassCtrl.text != _confirmPassCtrl.text) {

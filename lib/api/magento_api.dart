@@ -69,7 +69,7 @@ class MagentoAPI {
     );
   }
 
-  // --- MODIFIED: FETCH PRODUCTS WITH PAGINATION, FILTERS AND SORT ---
+  // FILTERS AND SORT 
   Future<List<Product>> fetchProducts({
     int? categoryId, 
     int page = 1, 
@@ -78,13 +78,13 @@ class MagentoAPI {
     String? sortField,     
     String? sortDirection, 
   }) async {
-    // Check if we are using the default sort (Relevance/None)
+    
     bool isDefaultSort = sortField == null || sortField.isEmpty;
     bool hasFilters = filters != null && filters.isNotEmpty;
     bool isFirstPage = page == 1;
     bool isAllProducts = categoryId == null;
 
-    // READ CACHE: Only for All Products, Page 1, No Filters, Default Sort
+    // READ CACHE Only for All Products, Page 1, No Filters, Default Sort
     if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort && cachedProducts.isNotEmpty) {
       return cachedProducts;
     }
@@ -129,7 +129,7 @@ class MagentoAPI {
         final items = data["items"] as List? ?? [];
         final products = items.map((json) => Product.fromJson(json)).toList();
 
-        // WRITE CACHE: Only for All Products, Page 1, No Filters, Default Sort
+        // WRITE CACHE Only for All Products, Page 1, No Filters, Default Sort
         if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort) {
           cachedProducts = products;
           final prefs = await SharedPreferences.getInstance();
@@ -143,7 +143,7 @@ class MagentoAPI {
     return [];
   }
 
-  // --- NEW: FETCH ATTRIBUTES BY SET ID (For Sub Categories) ---
+  // FETCH ATTRIBUTES BY SET ID (For Sub Categories)
   Future<List<ProductAttribute>> fetchAttributesBySet(int attributeSetId) async {
     try {
       final response = await _oauthClient.get("/products/attribute-sets/$attributeSetId/attributes");
@@ -176,7 +176,7 @@ class MagentoAPI {
     return [];
   }
 
-  // --- NEW: FETCH ALL FILTERABLE ATTRIBUTES (For All Products Page) ---
+  // FETCH ALL FILTERABLE ATTRIBUTES (For All Products Page)
   Future<List<ProductAttribute>> fetchGlobalFilterableAttributes() async {
     try {
       final queryParams = {
@@ -201,7 +201,7 @@ class MagentoAPI {
     return [];
   }
 
-  // --- NEW: BATCH FETCH PRODUCTS BY SKUS (For Cart Images) ---
+  // BATCH FETCH PRODUCTS BY SKUS (For Cart Images)
   Future<List<Product>> _fetchProductsBySkus(List<String> skus) async {
     if (skus.isEmpty) return [];
     try {
@@ -225,8 +225,6 @@ class MagentoAPI {
     }
     return [];
   }
-
-  // --- OTHER EXISTING METHODS ---
 
   Future<void> clearCache() async {
     cachedCategories.clear();
@@ -314,7 +312,7 @@ class MagentoAPI {
     return null;
   }
 
-  // --- SEARCH ---
+  // SEARCH 
   Future<List<Product>> searchProducts(String query) async {
     return _performSearch(query, pageSize: 20);
   }
@@ -340,7 +338,7 @@ class MagentoAPI {
     return [];
   }
 
-  // --- UPDATED: GET CART ITEMS (With Image Fetch) ---
+  // UPDATED: GET CART ITEMS (With Image Fetch)
   Future<List<CartItem>?> getCartItems() async {
     final token = await _getCustomerToken();
     if (token == null) return [];
