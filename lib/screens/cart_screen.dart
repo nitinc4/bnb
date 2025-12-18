@@ -1,14 +1,13 @@
 // lib/screens/cart_screen.dart
-import 'package:bnb/screens/login_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/cart_provider.dart';
 import '../models/magento_models.dart';
-import 'checkout_screen.dart';
 import 'home_screen.dart';
-import 'product_detail_screen.dart'; // Import detail screen
+import 'product_detail_screen.dart';
+import 'website_webview_screen.dart'; 
 
 class CartScreen extends StatefulWidget {
   const CartScreen({super.key});
@@ -32,23 +31,32 @@ class _CartScreenState extends State<CartScreen> {
     final token = prefs.getString('customer_token');
 
     if (token != null && token.isNotEmpty) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => CheckoutScreen(total: total)));
+      // Navigate to Website Checkout. 
+      // Since we performed a background web login, the session cookies should already be set!
+      Navigator.push(
+        context, 
+        MaterialPageRoute(
+          builder: (_) => const WebsiteWebViewScreen(
+            url: "https://buynutbolts.com/checkout/", 
+            title: "Checkout",
+          )
+        )
+      );
     } else {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text("Sign In Required"),
-          content: const Text("Please sign in to complete your checkout."),
+          content: const Text("Please sign in to sync your cart and proceed to checkout."),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
             ElevatedButton(
               onPressed: () {
                 Navigator.pop(ctx);
-                Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false);
+                Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomeScreen()), (route) => false);
               },
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c)),
               child: const Text("Go to Sign In", style: TextStyle(color: Colors.white)),
-          
             ),
           ],
         ),
@@ -89,13 +97,12 @@ class _CartScreenState extends State<CartScreen> {
               final item = cart.items[index];
               return GestureDetector(
                 onTap: () {
-                  // Navigate to Product Detail on tap
                   final product = Product(
                     name: item.name,
                     sku: item.sku,
                     price: item.price,
                     imageUrl: item.imageUrl ?? "",
-                    description: "", // Detail screen will fetch this
+                    description: "", 
                   );
                   Navigator.push(
                     context, 

@@ -58,7 +58,8 @@ class _WebsiteWebViewScreenState extends State<WebsiteWebViewScreen> {
             }
             
             // Allow payment gateways if necessary
-            if (request.url.contains('razorpay.com')) {
+            if (request.url.contains('razorpay.com') || 
+                request.url.contains('paypal.com')) {
                return NavigationDecision.navigate;
             }
 
