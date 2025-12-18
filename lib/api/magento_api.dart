@@ -1,5 +1,8 @@
 // lib/api/magento_api.dart
+// ignore_for_file: curly_braces_in_flow_control_structures
+
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -105,7 +108,7 @@ class MagentoAPI {
 
       // Add Custom Filters
       if (hasFilters) {
-        filters!.forEach((key, value) {
+        filters.forEach((key, value) {
           queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][field]"] = key;
           queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][value]"] = value.toString();
           queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][condition_type]"] = "eq";
@@ -115,7 +118,7 @@ class MagentoAPI {
 
       // Add Sorting
       if (!isDefaultSort && sortDirection != null) {
-        queryParams["searchCriteria[sortOrders][0][field]"] = sortField!;
+        queryParams["searchCriteria[sortOrders][0][field]"] = sortField;
         queryParams["searchCriteria[sortOrders][0][direction]"] = sortDirection;
       }
 
@@ -135,7 +138,7 @@ class MagentoAPI {
         return products;
       }
     } catch (e) {
-      print("Fetch Products Error: $e");
+      debugPrint("Fetch Products Error: $e");
     }
     return [];
   }
@@ -168,7 +171,7 @@ class MagentoAPI {
             .toList();
       }
     } catch (e) {
-      print("Fetch Attributes Error: $e");
+      debugPrint("Fetch Attributes Error: $e");
     }
     return [];
   }
@@ -193,7 +196,7 @@ class MagentoAPI {
             .toList();
       }
     } catch (e) {
-      print("Fetch Global Attributes Error: $e");
+      debugPrint("Fetch Global Attributes Error: $e");
     }
     return [];
   }
@@ -218,7 +221,7 @@ class MagentoAPI {
         return items.map((json) => Product.fromJson(json)).toList();
       }
     } catch (e) {
-      print("Error fetching cart product details: $e");
+      debugPrint("Error fetching cart product details: $e");
     }
     return [];
   }
@@ -244,7 +247,9 @@ class MagentoAPI {
       try {
         cachedCategories = (jsonDecode(prefs.getString('cached_categories_data')!) as List).map((e) => Category.fromJson(e)).toList();
         if (cachedCategories.isNotEmpty) return cachedCategories;
-      } catch (e) {}
+      } catch (e) {
+        debugPrint("Load Cached Categories Error: $e");
+      }
     }
     try {
       final response = await _oauthClient.get("/categories");
@@ -255,7 +260,9 @@ class MagentoAPI {
         prefs.setString('cached_categories_data', jsonEncode(cachedCategories.map((e) => e.toJson()).toList()));
         return cachedCategories;
       }
-    } catch (e) {}
+    } catch (e) {
+      debugPrint("Fetch Categories Error: $e");
+    }
     return [];
   }
 
@@ -264,7 +271,10 @@ class MagentoAPI {
     if (_detailsCache.isEmpty && prefs.containsKey('category_details_cache')) {
       try {
         _detailsCache = (jsonDecode(prefs.getString('category_details_cache')!) as Map<String, dynamic>).map((k, v) => MapEntry(k, Category.fromJson(v)));
-      } catch (e) {}
+      } catch (e) 
+      {
+        debugPrint("Load Category Details Cache Error: $e");
+      }
     }
     List<Future<Category>> tasks = categories.map((cat) async {
       final idStr = cat.id.toString();
@@ -279,13 +289,17 @@ class MagentoAPI {
           _detailsCache[idStr] = c;
           return Category(id: c.id, name: c.name, isActive: c.isActive, imageUrl: c.imageUrl, children: cat.children);
         }
-      } catch (e) {}
+      } catch (e) {
+        debugPrint("Enrich Category ${cat.id} Error: $e");
+      }
       return cat;
     }).toList();
     final results = await Future.wait(tasks);
     try {
       prefs.setString('category_details_cache', jsonEncode(_detailsCache.map((k, v) => MapEntry(k, v.toJson()))));
-    } catch (e) {}
+    } catch (e) {
+      debugPrint("Save Category Details Cache Error: $e");
+    }
     return results.where((c) => c.isActive).toList();
   }
 
@@ -294,7 +308,9 @@ class MagentoAPI {
       final response = await _oauthClient.get("/products", params: {"searchCriteria[filter_groups][0][filters][0][field]": "sku", "searchCriteria[filter_groups][0][filters][0][value]": sku});
       final items = (jsonDecode(response.body)["items"] as List? ?? []);
       if (items.isNotEmpty) return Product.fromJson(items.first);
-    } catch (e) {}
+    } catch (e) {
+      debugPrint("Fetch Product by SKU Error: $e");
+    }
     return null;
   }
 
@@ -318,7 +334,9 @@ class MagentoAPI {
       if (response.statusCode == 200) {
         return (jsonDecode(response.body)["items"] as List? ?? []).map((e) => Product.fromJson(e)).toList();
       }
-    } catch (e) {}
+    } catch (e) {
+      debugPrint("Search Products Error: $e");
+    }
     return [];
   }
 
@@ -354,9 +372,10 @@ class MagentoAPI {
         }
 
         return items;
+      
       } else if (response.statusCode == 401) return null;
     } catch (e) {
-      print("Get Cart Error: $e");
+      debugPrint("Get Cart Error: $e");
     }
     return null;
   }
@@ -395,7 +414,9 @@ class MagentoAPI {
     try {
       final response = await _oauthClient.get("/orders", params: {"searchCriteria[filter_groups][0][filters][0][field]": "customer_email", "searchCriteria[filter_groups][0][filters][0][value]": email, "searchCriteria[sortOrders][0][field]": "created_at", "searchCriteria[sortOrders][0][direction]": "DESC", "searchCriteria[pageSize]": pageSize.toString()});
       if (response.statusCode == 200) return (jsonDecode(response.body)["items"] as List? ?? []).map((e) => Order.fromJson(e)).toList();
-    } catch (e) {}
+    } catch (e) {
+      debugPrint("Fetch Orders Error: $e");
+    }
     return [];
   }
 
@@ -403,7 +424,9 @@ class MagentoAPI {
     try {
       final r = await http.post(Uri.parse("$baseUrl/rest/V1/integration/customer/token"), headers: {"Content-Type": "application/json"}, body: jsonEncode({"username": e, "password": p}));
       if (r.statusCode == 200) return jsonDecode(r.body);
-    } catch (e) {}
+    } catch (e) {
+      debugPrint("Login Error: $e");
+    }
     return null;
   }
 
@@ -424,7 +447,9 @@ class MagentoAPI {
         await prefs.setString('cached_user_data', jsonEncode(data));
         return data;
       } else if (r.statusCode == 401) return null;
-    } catch (e) {}
+    } catch (e) {
+      debugPrint("Fetch Customer Details Error: $e");
+    }
     return null;
   }
 

@@ -1,4 +1,6 @@
 // lib/screens/cart_screen.dart
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:bnb/screens/login_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -6,7 +8,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/cart_provider.dart';
 import '../models/magento_models.dart';
-import 'home_screen.dart';
 import 'product_detail_screen.dart';
 import 'website_webview_screen.dart'; 
 
@@ -156,6 +157,7 @@ class _CartScreenState extends State<CartScreen> {
             child: IntrinsicHeight(
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                // ignore: deprecated_member_use
                 decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 8, offset: const Offset(0, -2))]),
                 child: Column(
                   mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch,

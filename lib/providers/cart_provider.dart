@@ -49,7 +49,7 @@ class CartProvider with ChangeNotifier {
       
       if (serverItems == null) {
         // TOKEN EXPIRED OR ERROR -> Fallback to Guest
-        print("⚠️ Token Invalid/Expired. Reverting to Guest Mode.");
+        debugPrint("⚠️ Token Invalid/Expired. Reverting to Guest Mode.");
         await prefs.remove('customer_token');
         await prefs.remove('cached_user_data');
         MagentoAPI.cachedUser = null;
@@ -74,7 +74,7 @@ class CartProvider with ChangeNotifier {
     if (_items.isNotEmpty) {
       final guestItems = _items.where((i) => i.quoteId == 'guest_local').toList();
       if (guestItems.isNotEmpty) {
-        print("🔄 Merging ${guestItems.length} Guest Items to Server...");
+        debugPrint("🔄 Merging ${guestItems.length} Guest Items to Server...");
         for (var item in guestItems) {
           await _api.addToCart(item.sku, item.qty);
         }

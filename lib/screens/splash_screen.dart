@@ -67,7 +67,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     final api = MagentoAPI();
     
     try {
-      print("System: syncing resources...");
+      debugPrint("System: syncing resources...");
       await Future.wait([
         api.fetchCategories(),
         api.fetchProducts(),
@@ -85,7 +85,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
         }
       }
     } catch (e) {
-      print("System: sync error: $e");
+      debugPrint("System: sync error: $e");
       if (mounted) Navigator.pushReplacementNamed(context, '/login');
     }
   }

@@ -1,4 +1,6 @@
 // lib/screens/home_screen.dart
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart'; 
 import '../widgets/product_card.dart';
@@ -10,7 +12,6 @@ import 'cart_screen.dart';
 import 'profile_screen.dart';
 import 'categories_screen.dart';
 import 'category_detail_screen.dart';
-import 'product_detail_screen.dart';
 import 'search_screen.dart'; 
 import 'all_products_screen.dart'; // Import the new screen
 

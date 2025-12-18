@@ -1,4 +1,6 @@
 // lib/screens/category_detail_screen.dart
+// ignore_for_file: unused_field, unused_local_variable, deprecated_member_use
+
 import 'package:flutter/material.dart';
 import '../models/magento_models.dart';
 import '../api/magento_api.dart';
@@ -48,7 +50,9 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
        try {
          final enriched = await _api.enrichCategories(_subCategories);
          if (mounted) setState(() => _subCategories = enriched);
-       } catch (e) {}
+       } catch (e) {  
+        debugPrint("Enrich SubCategories Error: $e");
+       }
     }
     if (mounted) setState(() => _isLoadingSubCats = false);
   }
@@ -93,7 +97,9 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
       try {
          final enriched = await _api.enrichCategories(_subCategories);
          if (mounted) setState(() => _subCategories = enriched);
-      } catch (e) {}
+      } catch (e) {
+        debugPrint("Refresh SubCategories Error: $e");
+      }
       if (mounted) setState(() => _isLoadingSubCats = false);
     } else {
       // Clear filters on pull to refresh? Optional. Let's keep them.
