@@ -1,4 +1,5 @@
 // lib/screens/cart_screen.dart
+import 'package:bnb/screens/login_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -53,7 +54,7 @@ class _CartScreenState extends State<CartScreen> {
             ElevatedButton(
               onPressed: () {
                 Navigator.pop(ctx);
-                Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomeScreen()), (route) => false);
+                Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false);
               },
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c)),
               child: const Text("Go to Sign In", style: TextStyle(color: Colors.white)),

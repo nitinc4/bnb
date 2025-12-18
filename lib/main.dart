@@ -10,7 +10,7 @@ import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/product_detail_screen.dart';
 import 'screens/cart_screen.dart';
-import 'screens/checkout_screen.dart';
+
 import 'screens/order_success_screen.dart';
 import 'screens/categories_screen.dart';
 
@@ -68,12 +68,7 @@ class MyApp extends StatelessWidget {
             builder: (context) => ProductDetailScreen(product: product),
           );
         }
-        if (settings.name == '/checkout') {
-          final total = settings.arguments as double;
-          return MaterialPageRoute(
-            builder: (context) => CheckoutScreen(total: total),
-          );
-        }
+       
         if (settings.name == '/orderSuccess') {
           final amount = settings.arguments as double;
           return MaterialPageRoute(
