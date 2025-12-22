@@ -152,14 +152,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       if (result == true) _loadAllData();
                     }),
                   ])),
-                  const SizedBox(width: 12),
-                  Expanded(child: _buildInfoBox("Newsletters", [
-                    "Newsletter settings"
-                  ], actions: [
-                    _buildLink("Edit", () {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Newsletter management coming soon")));
-                    }),
-                  ])),
                 ],
               ),
 

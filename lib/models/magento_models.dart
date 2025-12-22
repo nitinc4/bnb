@@ -6,7 +6,8 @@ class Product {
   final double price;
   final String imageUrl;
   final String description;
-  final int attributeSetId; 
+  final int attributeSetId;
+  final Map<String, dynamic> customAttributes; // New: Store all attributes for filtering
 
   Product({
     required this.name,
@@ -15,6 +16,7 @@ class Product {
     required this.imageUrl,
     required this.description,
     this.attributeSetId = 0,
+    this.customAttributes = const {},
   });
 
   Map<String, dynamic> toJson() {
@@ -25,6 +27,7 @@ class Product {
       'imageUrl': imageUrl,
       'description': description,
       'attribute_set_id': attributeSetId,
+      'custom_attributes_map': customAttributes, 
     };
   }
 
@@ -36,22 +39,25 @@ class Product {
       imageUrl: json['imageUrl'] ?? '',
       description: json['description'] ?? '',
       attributeSetId: json['attribute_set_id'] ?? 0,
+      customAttributes: json['custom_attributes_map'] ?? {},
     );
   }
 
   factory Product.fromJson(Map<String, dynamic> json) {
+    // 1. Parse all custom attributes into a Map for easy access
+    Map<String, dynamic> attributesMap = {};
+    if (json['custom_attributes'] != null) {
+      for (var item in json['custom_attributes']) {
+        attributesMap[item['attribute_code']] = item['value'];
+      }
+    }
+
     if (json.containsKey('imageUrl') && json.containsKey('description')) {
       return Product.fromStorage(json);
     }
 
     String getAttribute(String code) {
-      if (json['custom_attributes'] == null) return '';
-      final attributes = json['custom_attributes'] as List;
-      final attr = attributes.firstWhere(
-        (element) => element['attribute_code'] == code,
-        orElse: () => {'value': null},
-      );
-      return attr['value']?.toString() ?? '';
+      return attributesMap[code]?.toString() ?? '';
     }
 
     String imagePath = getAttribute('image');
@@ -71,6 +77,7 @@ class Product {
       imageUrl: fullImageUrl,
       description: desc,
       attributeSetId: json['attribute_set_id'] ?? 0,
+      customAttributes: attributesMap, // Store the map
     );
   }
 }
@@ -293,7 +300,7 @@ class CartItem {
   }
 }
 
-//NEW CLASSES FOR FILTERS
+// --- NEW CLASSES FOR FILTERS ---
 
 class AttributeOption {
   final String label;

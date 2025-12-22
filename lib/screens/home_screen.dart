@@ -13,7 +13,7 @@ import 'profile_screen.dart';
 import 'categories_screen.dart';
 import 'category_detail_screen.dart';
 import 'search_screen.dart'; 
-import 'all_products_screen.dart'; // Import the new screen
+import 'all_products_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -70,7 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
-        title: const Text("BNB Store", style: TextStyle(color: Color(0xFF00599c), fontWeight: FontWeight.bold)),
+        title: const Text("BuyNutBolts", style: TextStyle(color: Color(0xFF00599c), fontWeight: FontWeight.bold)),
         leading: IconButton(
           icon: const Icon(Icons.menu, color: Color(0xFF00599c)),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),

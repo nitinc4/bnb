@@ -1,10 +1,9 @@
 // lib/screens/category_detail_screen.dart
-// ignore_for_file: unused_field, unused_local_variable, deprecated_member_use
-
 import 'package:flutter/material.dart';
 import '../models/magento_models.dart';
 import '../api/magento_api.dart';
 import '../widgets/product_card.dart';
+import 'product_detail_screen.dart';
 
 class CategoryDetailScreen extends StatefulWidget {
   final Category category;
@@ -24,14 +23,14 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
   List<Product> _products = [];
   bool _isLoadingProducts = true;
   
-  // Filter State
+  // Filter & Sort State
   List<ProductAttribute> _filterAttributes = [];
   final Map<String, dynamic> _activeFilters = {};
-
-// Sorting State
+  
+  // Sorting State
   String? _sortField; 
   String? _sortDirection; 
-  String _sortLabel = 'Relevance';
+  String _sortLabel = 'Relevance'; 
 
   @override
   void initState() {
@@ -50,9 +49,7 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
        try {
          final enriched = await _api.enrichCategories(_subCategories);
          if (mounted) setState(() => _subCategories = enriched);
-       } catch (e) {  
-        debugPrint("Enrich SubCategories Error: $e");
-       }
+       } catch (e) {}
     }
     if (mounted) setState(() => _isLoadingSubCats = false);
   }
@@ -63,6 +60,8 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
     final products = await _api.fetchProducts(
       categoryId: widget.category.id,
       filters: _activeFilters.isNotEmpty ? _activeFilters : null,
+      sortField: _sortField,
+      sortDirection: _sortDirection,
     );
 
     if (mounted) {
@@ -71,21 +70,34 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
         _isLoadingProducts = false;
       });
 
-      // Link specific attribute set to the sub category dynamically
+      // Link specific attribute set dynamically & FILTER them based on actual products
       if (_filterAttributes.isEmpty && products.isNotEmpty) {
         final attributeSetId = products.first.attributeSetId;
         if (attributeSetId > 0) {
-          _fetchAttributes(attributeSetId);
+          _fetchAndFilterAttributes(attributeSetId, products);
         }
       }
     }
   }
 
-  Future<void> _fetchAttributes(int attributeSetId) async {
-    final attrs = await _api.fetchAttributesBySet(attributeSetId);
+  // --- CHANGED: Fetch AND Filter Attributes ---
+  Future<void> _fetchAndFilterAttributes(int attributeSetId, List<Product> loadedProducts) async {
+    // 1. Fetch ALL attributes for this set (which might be too many)
+    final allAttrs = await _api.fetchAttributesBySet(attributeSetId);
+    
+    // 2. Filter: Only keep attributes that are actually used by the products in this category
+    // This prevents "sibling" attributes (like 'shoulder_length' in 'socket_head' category) from showing up
+    final relevantAttrs = allAttrs.where((attr) {
+      // Check if ANY loaded product has a value for this attribute
+      return loadedProducts.any((product) {
+        return product.customAttributes.containsKey(attr.code) && 
+               product.customAttributes[attr.code] != null;
+      });
+    }).toList();
+
     if (mounted) {
       setState(() {
-        _filterAttributes = attrs;
+        _filterAttributes = relevantAttrs;
       });
     }
   }
@@ -96,12 +108,9 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
       try {
          final enriched = await _api.enrichCategories(_subCategories);
          if (mounted) setState(() => _subCategories = enriched);
-      } catch (e) {
-        debugPrint("Refresh SubCategories Error: $e");
-      }
+      } catch (e) {}
       if (mounted) setState(() => _isLoadingSubCats = false);
     } else {
-      // Clear filters on pull to refresh
       await _fetchProducts();
     }
   }
@@ -140,7 +149,9 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
                       ),
                     ),
                     Expanded(
-                      child: ListView.builder(
+                      child: _filterAttributes.isEmpty
+                        ? const Center(child: Text("No filters available for these products."))
+                        : ListView.builder(
                         controller: controller,
                         itemCount: _filterAttributes.length,
                         itemBuilder: (context, index) {
@@ -148,7 +159,6 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
                           return ExpansionTile(
                             title: Text(attr.label, style: const TextStyle(fontWeight: FontWeight.w600)),
                             children: attr.options.map((option) {
-                              final isSelected = _activeFilters[attr.code] == option.value;
                               return RadioListTile<String>(
                                 title: Text(option.label),
                                 value: option.value,
@@ -157,7 +167,7 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
                                   setState(() {
                                     if (val != null) _activeFilters[attr.code] = val;
                                   });
-                                  setModalState(() {}); // Update modal UI
+                                  setModalState(() {}); 
                                 },
                                 activeColor: const Color(0xFF00599c),
                               );
@@ -191,8 +201,7 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
     );
   }
 
-  
-void _showSortDialog() {
+  void _showSortDialog() {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
@@ -245,7 +254,6 @@ void _showSortDialog() {
         elevation: 0,
         iconTheme: const IconThemeData(color: Color(0xFF00599c)),
         actions: [
-          // Show Sort & Filter only when products are visible (not subcategories)
           if (!hasSubCategories) ...[
             IconButton(
               icon: const Icon(Icons.sort),
