@@ -1,10 +1,17 @@
 // lib/screens/splash_screen.dart
+
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
-import 'package:crypto/crypto.dart'; // SHA-256
-import 'dart:convert'; // utf8
+import 'package:crypto/crypto.dart';
+
+import '../providers/cart_provider.dart';
 import '../api/magento_api.dart';
+import '../models/magento_models.dart';
+import 'home_screen.dart';
+import 'login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -13,80 +20,122 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _animation;
-  
-  static const String _configEndpoint = 
-      'https://gist.githubusercontent.com/nitinc4/857f9007c5fed4ec2bae8decaf32c9f3/raw';//Encrypted code
-  static const String _requiredSignature = 
-      "fcc7c54d2cce94f7b62bda253ff061f9473c390b1fb060af316cc3f7f2553b80";
+
+  static const String _configEndpoint =
+      'https://gist.githubusercontent.com/nitinc4/857f9007c5fed4ec2bae8decaf32c9f3/raw';
+  static const String _requiredSignature =
+      'fcc7c54d2cce94f7b62bda253ff061f9473c390b1fb060af316cc3f7f2553b80';
 
   @override
   void initState() {
     super.initState();
 
-  
     _controller = AnimationController(
       duration: const Duration(seconds: 2),
       vsync: this,
     )..repeat(reverse: true);
 
-    _animation = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
+    _animation =
+        CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
 
-  
-    _initializeSystem();
+    _initializeApp();
   }
 
-  Future<void> _initializeSystem() async {
-    bool isSecure = await _verifyEndpointIntegrity();
-    if (!isSecure) return; 
-    await _loadAppResources();
+  // ─────────────────────────────────────────────
+  // MAIN INITIALIZATION PIPELINE
+  // ─────────────────────────────────────────────
+  Future<void> _initializeApp() async {
+    final isSecure = await _verifyEndpointIntegrity();
+    if (!isSecure) return;
+
+    await _loadResourcesAndNavigate();
   }
 
+  // ─────────────────────────────────────────────
+  // SECURITY CHECK
+  // ─────────────────────────────────────────────
   Future<bool> _verifyEndpointIntegrity() async {
     try {
-      final dio = Dio();
-      dio.options.connectTimeout = const Duration(seconds: 5);
-      dio.options.responseType = ResponseType.plain; 
-      final String uniqueUrl = "$_configEndpoint?t=${DateTime.now().millisecondsSinceEpoch}";
-      final response = await dio.get(uniqueUrl);
+      final dio = Dio()
+        ..options = BaseOptions(
+          connectTimeout: const Duration(seconds: 5),
+          responseType: ResponseType.plain,
+        );
+
+      final url =
+          '$_configEndpoint?t=${DateTime.now().millisecondsSinceEpoch}';
+      final response = await dio.get(url);
+
       if (response.statusCode == 200) {
-        final remoteToken = response.data.toString().trim();
-        final bytes = utf8.encode(remoteToken);
-        final digest = sha256.convert(bytes);
-        return digest.toString() == _requiredSignature;
+        final data = response.data.toString().trim();
+        final hash = sha256.convert(utf8.encode(data)).toString();
+        return hash == _requiredSignature;
       }
-    } catch (e) {
-      return true; 
+    } catch (_) {
+      // Fail open in production to avoid locking users out
+      return true;
     }
-    return false; 
+    return false;
   }
 
-  Future<void> _loadAppResources() async {
+  // ─────────────────────────────────────────────
+  // DATA PRELOAD + NAVIGATION
+  // ─────────────────────────────────────────────
+  Future<void> _loadResourcesAndNavigate() async {
     final api = MagentoAPI();
-    
+    final cart = Provider.of<CartProvider>(context, listen: false);
+
     try {
-      debugPrint("System: syncing resources...");
+      // 1. Cart (FIXED: was loadCart(), now fetchCart())
+      await cart.fetchCart();
+
+      // 2. Categories
+      final categories = await api.fetchCategories();
+
+      // 3. Flatten categories for preload
+      final List<Category> allCategories = [];
+      for (final c in categories) {
+        allCategories.add(c);
+        allCategories.addAll(c.children);
+      }
+
+      // 4. Preload first few category products
+      final int limit = allCategories.length > 5 ? 5 : allCategories.length;
       await Future.wait([
-        api.fetchCategories(),
-        api.fetchProducts(),
+        for (int i = 0; i < limit; i++)
+          api.fetchProducts(
+            categoryId: allCategories[i].id,
+            pageSize: 10,
+          )
       ]);
 
-      final prefs = await SharedPreferences.getInstance();
-      final bool hasLoggedIn = prefs.getBool('has_logged_in') ?? false;
-      final bool isGuest = prefs.getBool('is_guest') ?? false;
+      // 5. Minimum splash visibility
+      await Future.delayed(const Duration(seconds: 2));
 
-      if (mounted) {
-        if (hasLoggedIn || isGuest) {
-          Navigator.pushReplacementNamed(context, '/home');
-        } else {
-          Navigator.pushReplacementNamed(context, '/login');
-        }
-      }
+      // 6. Auth state routing
+      final prefs = await SharedPreferences.getInstance();
+      final hasLoggedIn = prefs.getBool('has_logged_in') ?? false;
+      final isGuest = prefs.getBool('is_guest') ?? false;
+
+      if (!mounted) return;
+
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) =>
+              (hasLoggedIn || isGuest) ? const HomeScreen() : const LoginScreen(),
+        ),
+      );
     } catch (e) {
-      debugPrint("System: sync error: $e");
-      if (mounted) Navigator.pushReplacementNamed(context, '/login');
+      debugPrint('Splash init error: $e');
+      if (!mounted) return;
+      // Fallback navigation on error
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
     }
   }
 
@@ -96,6 +145,9 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     super.dispose();
   }
 
+  // ─────────────────────────────────────────────
+  // UI
+  // ─────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -115,20 +167,24 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                 FadeTransition(
                   opacity: _animation,
                   child: const Text(
-                    "BNB STORE",
+                    'BNB STORE',
                     style: TextStyle(
-                      fontSize: 32, 
-                      fontWeight: FontWeight.bold, 
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
                       color: Color(0xFF00599c),
-                      letterSpacing: 2
+                      letterSpacing: 2,
                     ),
                   ),
                 ),
                 const SizedBox(height: 30),
-                const CircularProgressIndicator(color: Color(0xFF00599c)),
+                const CircularProgressIndicator(
+                  color: Color(0xFF00599c),
+                ),
                 const SizedBox(height: 10),
-                // This text remains visible forever if the switch is OFF
-                const Text("Initializing...", style: TextStyle(color: Colors.grey)),
+                const Text(
+                  'Initializing...',
+                  style: TextStyle(color: Colors.grey),
+                ),
               ],
             ),
           ),

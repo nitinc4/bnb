@@ -14,49 +14,28 @@ class MagentoAPI {
   late final MagentoOAuthClient _oauthClient;
 
   static List<Category> cachedCategories = [];
-  static List<Product> cachedProducts = []; // Caches "Default Sort" + "No Filter" only
+  static List<Product> cachedProducts = []; // Caches "All Products" (No Filter)
+  
+  // NEW: Cache for individual category product lists
+  static Map<int, List<Product>> categoryProductsCache = {}; 
+  
   static Map<String, Category> _detailsCache = {};
   static Map<String, dynamic>? cachedUser; 
 
-  // 1. Exclude by strict Attribute Code (Technical IDs)
   static const List<String> _excludedAttributeCodes = [
-    "ship_bundle_items",
-    "page_layout",
-    "gift_message_available",
-    "tax_class_id",
-    "options_container",
-    "custom_layout_update",
-    "custom_design",
-    "msrp_display_actual_price_type",
-    "custom_layout",
-    "price_view",
-    "status",
-    "quantity_and_stock_status",
-    "visibility",
-    "country_of_manufacture",
-    "gst_rate",
-    "layout",
-    "enable_product"
+    "ship_bundle_items", "page_layout", "gift_message_available", "tax_class_id",
+    "options_container", "custom_layout_update", "custom_design",
+    "msrp_display_actual_price_type", "custom_layout", "price_view", "status",
+    "quantity_and_stock_status", "visibility", "country_of_manufacture",
+    "gst_rate", "layout", "enable_product"
   ];
 
-  // 2. Exclude by Label (User provided list)
   static const List<String> _excludedAttributeLabels = [
-    "ship bundle items", 
-    "layout", 
-    "allow gift message", 
-    "gst rate", 
-    "display product option in", 
-    "custom layout update", 
-    "new theme", 
-    "to apply on products below minimum set price", 
-    "new layout", 
-    "display price", 
-    "price view", 
-    "enable product", 
-    "tax class", 
-    "quantity", 
-    "visibility", 
-    "country of manufacture"
+    "ship bundle items", "layout", "allow gift message", "gst rate", 
+    "display product option in", "custom layout update", "new theme", 
+    "to apply on products below minimum set price", "new layout", 
+    "display price", "price view", "enable product", "tax class", 
+    "quantity", "visibility", "country of manufacture"
   ];
 
   MagentoAPI() {
@@ -84,13 +63,19 @@ class MagentoAPI {
     bool isFirstPage = page == 1;
     bool isAllProducts = categoryId == null;
 
-    // READ CACHE Only for All Products, Page 1, No Filters, Default Sort
+    // 1. Check Global Cache (All Products)
     if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort && cachedProducts.isNotEmpty) {
       return cachedProducts;
     }
+
+    // 2. Check Category Specific Cache
+    if (categoryId != null && isFirstPage && !hasFilters && isDefaultSort) {
+      if (categoryProductsCache.containsKey(categoryId) && categoryProductsCache[categoryId]!.isNotEmpty) {
+        return categoryProductsCache[categoryId]!;
+      }
+    }
     
     try {
-      // Base Params for Pagination
       final Map<String, String> queryParams = {
         "searchCriteria[pageSize]": pageSize.toString(),
         "searchCriteria[currentPage]": page.toString(),
@@ -98,7 +83,6 @@ class MagentoAPI {
 
       int groupIndex = 0;
 
-      // Add Category Filter if provided
       if (categoryId != null) {
         queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][field]"] = "category_id";
         queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][value]"] = "$categoryId";
@@ -106,7 +90,6 @@ class MagentoAPI {
         groupIndex++;
       }
 
-      // Add Custom Filters
       if (hasFilters) {
         filters.forEach((key, value) {
           queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][field]"] = key;
@@ -116,7 +99,6 @@ class MagentoAPI {
         });
       }
 
-      // Add Sorting
       if (!isDefaultSort && sortDirection != null) {
         queryParams["searchCriteria[sortOrders][0][field]"] = sortField;
         queryParams["searchCriteria[sortOrders][0][direction]"] = sortDirection;
@@ -129,12 +111,18 @@ class MagentoAPI {
         final items = data["items"] as List? ?? [];
         final products = items.map((json) => Product.fromJson(json)).toList();
 
-        // WRITE CACHE Only for All Products, Page 1, No Filters, Default Sort
+        // Populate Global Cache
         if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort) {
           cachedProducts = products;
           final prefs = await SharedPreferences.getInstance();
           prefs.setString('cached_products_data', jsonEncode(products.map((e) => e.toJson()).toList()));
         }
+
+        // Populate Category Cache
+        if (categoryId != null && isFirstPage && !hasFilters && isDefaultSort) {
+          categoryProductsCache[categoryId] = products;
+        }
+
         return products;
       }
     } catch (e) {
@@ -143,7 +131,20 @@ class MagentoAPI {
     return [];
   }
 
-  // FETCH ATTRIBUTES BY SET ID (For Sub Categories)
+  Future<void> clearCache() async {
+    cachedCategories.clear();
+    cachedProducts.clear();
+    categoryProductsCache.clear(); // Clear category cache
+    _detailsCache.clear();
+    cachedUser = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('cached_categories_data');
+    await prefs.remove('cached_products_data');
+    await prefs.remove('category_details_cache');
+    await prefs.remove('cached_user_data');
+  }
+
+  // ... (Rest of the file remains exactly the same as previous versions)
   Future<List<ProductAttribute>> fetchAttributesBySet(int attributeSetId) async {
     try {
       final response = await _oauthClient.get("/products/attribute-sets/$attributeSetId/attributes");
@@ -154,18 +155,11 @@ class MagentoAPI {
             .where((attr) {
               final isSelect = attr.frontendInput == 'select' || attr.frontendInput == 'multiselect';
               final hasOptions = attr.options.isNotEmpty;
-              
               final labelLower = attr.label.toLowerCase().trim();
               final codeLower = attr.code.toLowerCase().trim();
               final codeHumanized = codeLower.replaceAll('_', ' ');
-
-              final isLabelExcluded = _excludedAttributeLabels.any((ex) => 
-                  labelLower == ex.toLowerCase().trim() || 
-                  codeHumanized.contains(ex.toLowerCase().trim())
-              );
-
+              final isLabelExcluded = _excludedAttributeLabels.any((ex) => labelLower == ex.toLowerCase().trim() || codeHumanized.contains(ex.toLowerCase().trim()));
               final isCodeExcluded = _excludedAttributeCodes.contains(codeLower);
-
               return isSelect && hasOptions && !isLabelExcluded && !isCodeExcluded;
             })
             .toList();
@@ -176,7 +170,6 @@ class MagentoAPI {
     return [];
   }
 
-  // FETCH ALL FILTERABLE ATTRIBUTES (For All Products Page)
   Future<List<ProductAttribute>> fetchGlobalFilterableAttributes() async {
     try {
       final queryParams = {
@@ -184,16 +177,11 @@ class MagentoAPI {
         "searchCriteria[filter_groups][0][filters][0][value]": "1",
         "searchCriteria[filter_groups][0][filters][0][condition_type]": "eq",
       };
-      
       final response = await _oauthClient.get("/products/attributes", params: queryParams);
-      
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final items = data['items'] as List? ?? [];
-        return items
-            .map((e) => ProductAttribute.fromJson(e))
-            .where((attr) => (attr.frontendInput == 'select' || attr.frontendInput == 'multiselect') && attr.options.isNotEmpty)
-            .toList();
+        return items.map((e) => ProductAttribute.fromJson(e)).where((attr) => (attr.frontendInput == 'select' || attr.frontendInput == 'multiselect') && attr.options.isNotEmpty).toList();
       }
     } catch (e) {
       debugPrint("Fetch Global Attributes Error: $e");
@@ -201,11 +189,9 @@ class MagentoAPI {
     return [];
   }
 
-  // BATCH FETCH PRODUCTS BY SKUS (For Cart Images)
   Future<List<Product>> _fetchProductsBySkus(List<String> skus) async {
     if (skus.isEmpty) return [];
     try {
-      // Join SKUs with comma for 'in' query
       final skuListStr = skus.join(",");
       final queryParams = {
         "searchCriteria[filter_groups][0][filters][0][field]": "sku",
@@ -213,7 +199,6 @@ class MagentoAPI {
         "searchCriteria[filter_groups][0][filters][0][condition_type]": "in",
         "searchCriteria[pageSize]": "${skus.length}" 
       };
-      
       final response = await _oauthClient.get("/products", params: queryParams);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -224,18 +209,6 @@ class MagentoAPI {
       debugPrint("Error fetching cart product details: $e");
     }
     return [];
-  }
-
-  Future<void> clearCache() async {
-    cachedCategories.clear();
-    cachedProducts.clear();
-    _detailsCache.clear();
-    cachedUser = null;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('cached_categories_data');
-    await prefs.remove('cached_products_data');
-    await prefs.remove('category_details_cache');
-    await prefs.remove('cached_user_data');
   }
 
   Future<List<Category>> fetchCategories() async {
@@ -269,8 +242,7 @@ class MagentoAPI {
     if (_detailsCache.isEmpty && prefs.containsKey('category_details_cache')) {
       try {
         _detailsCache = (jsonDecode(prefs.getString('category_details_cache')!) as Map<String, dynamic>).map((k, v) => MapEntry(k, Category.fromJson(v)));
-      } catch (e) 
-      {
+      } catch (e) {
         debugPrint("Load Category Details Cache Error: $e");
       }
     }
@@ -312,7 +284,6 @@ class MagentoAPI {
     return null;
   }
 
-  // SEARCH 
   Future<List<Product>> searchProducts(String query) async {
     return _performSearch(query, pageSize: 20);
   }
@@ -338,7 +309,6 @@ class MagentoAPI {
     return [];
   }
 
-  // UPDATED: GET CART ITEMS (With Image Fetch)
   Future<List<CartItem>?> getCartItems() async {
     final token = await _getCustomerToken();
     if (token == null) return [];
@@ -347,34 +317,18 @@ class MagentoAPI {
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
         List<CartItem> items = data.map((e) => CartItem.fromJson(e)).toList();
-
-        // Fetch images for server items
         if (items.isNotEmpty) {
            final skus = items.map((e) => e.sku).toList();
-           
-           // Fetch full product details for these SKUs
            final products = await _fetchProductsBySkus(skus);
-           
-           // Map images back to cart items
            items = items.map((item) {
-             final product = products.firstWhere(
-               (p) => p.sku == item.sku, 
-               orElse: () => Product(name: '', sku: '', price: 0, imageUrl: '', description: '')
-             );
-             
-             if (product.imageUrl.isNotEmpty) {
-               return item.copyWith(imageUrl: product.imageUrl);
-             }
+             final product = products.firstWhere((p) => p.sku == item.sku, orElse: () => Product(name: '', sku: '', price: 0, imageUrl: '', description: ''));
+             if (product.imageUrl.isNotEmpty) return item.copyWith(imageUrl: product.imageUrl);
              return item;
            }).toList();
         }
-
         return items;
-      
       } else if (response.statusCode == 401) return null;
-    } catch (e) {
-      debugPrint("Get Cart Error: $e");
-    }
+    } catch (e) { debugPrint("Get Cart Error: $e"); }
     return null;
   }
 
@@ -412,9 +366,7 @@ class MagentoAPI {
     try {
       final response = await _oauthClient.get("/orders", params: {"searchCriteria[filter_groups][0][filters][0][field]": "customer_email", "searchCriteria[filter_groups][0][filters][0][value]": email, "searchCriteria[sortOrders][0][field]": "created_at", "searchCriteria[sortOrders][0][direction]": "DESC", "searchCriteria[pageSize]": pageSize.toString()});
       if (response.statusCode == 200) return (jsonDecode(response.body)["items"] as List? ?? []).map((e) => Order.fromJson(e)).toList();
-    } catch (e) {
-      debugPrint("Fetch Orders Error: $e");
-    }
+    } catch (e) { debugPrint("Fetch Orders Error: $e"); }
     return [];
   }
 
@@ -422,9 +374,7 @@ class MagentoAPI {
     try {
       final r = await http.post(Uri.parse("$baseUrl/rest/V1/integration/customer/token"), headers: {"Content-Type": "application/json"}, body: jsonEncode({"username": e, "password": p}));
       if (r.statusCode == 200) return jsonDecode(r.body);
-    } catch (e) {
-      debugPrint("Login Error: $e");
-    }
+    } catch (e) { debugPrint("Login Error: $e"); }
     return null;
   }
 
@@ -445,9 +395,7 @@ class MagentoAPI {
         await prefs.setString('cached_user_data', jsonEncode(data));
         return data;
       } else if (r.statusCode == 401) return null;
-    } catch (e) {
-      debugPrint("Fetch Customer Details Error: $e");
-    }
+    } catch (e) { debugPrint("Fetch Customer Details Error: $e"); }
     return null;
   }
 

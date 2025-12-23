@@ -25,29 +25,58 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   
-  late Future<List<Category>> _categoriesFuture;
-  late Future<List<Product>> _productsFuture;
+  // Initialize with cached data immediately
+  Future<List<Category>> _categoriesFuture = Future.value(MagentoAPI.cachedCategories);
   
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
     super.initState();
-    _loadData();
-  }
-
-  void _loadData() {
-    final api = MagentoAPI();
-    _categoriesFuture = api.fetchCategories();
-    _productsFuture = api.fetchProducts();
+    // If cache is empty (e.g. restart without splash), fetch it.
+    if (MagentoAPI.cachedCategories.isEmpty) {
+      _categoriesFuture = MagentoAPI().fetchCategories();
+    }
   }
 
   Future<void> _onRefresh() async {
+    // 1. Clear Cache
     await MagentoAPI().clearCache();
+    
+    // 2. Start fetching categories
+    final categoriesTask = MagentoAPI().fetchCategories();
+    
     setState(() {
-      _loadData();
+      _categoriesFuture = categoriesTask;
     });
-    await Future.wait([_categoriesFuture, _productsFuture]);
+
+    try {
+      // 3. Wait for categories to arrive
+      final categories = await categoriesTask;
+
+      // 4. Pre-fetch products for the top 5 categories 
+      // This ensures the Refresh Indicator stays visible until products are ready,
+      // creating a "single loading circle" experience.
+      final List<Category> allCategories = [];
+      for (var cat in categories) {
+        allCategories.add(cat);
+        allCategories.addAll(cat.children);
+      }
+
+      int limit = allCategories.length > 5 ? 5 : allCategories.length;
+      List<Future> productTasks = [];
+      
+      for (int i = 0; i < limit; i++) {
+        productTasks.add(MagentoAPI().fetchProducts(
+          categoryId: allCategories[i].id,
+          pageSize: 10,
+        ));
+      }
+
+      await Future.wait(productTasks);
+    } catch (e) {
+      debugPrint("Refresh Error: $e");
+    }
   }
 
   void _onItemTapped(int index) {
@@ -149,7 +178,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Text('Categories', style: TextStyle(color: Colors.grey.shade800, fontWeight: FontWeight.w600, fontSize: 16)),
             ),
 
-            // Categories List
+            // Categories List (Circles)
             SizedBox(
               height: 170,
               child: FutureBuilder<List<Category>>(
@@ -202,62 +231,162 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
 
-            // Featured Products Header
+            // Horizontal Scrollable Products for each Category
+            FutureBuilder<List<Category>>(
+              future: _categoriesFuture,
+              builder: (context, snapshot) {
+                if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+                
+                final categories = snapshot.data!;
+                final List<Category> allCategories = [];
+                for (var cat in categories) {
+                  allCategories.add(cat);
+                  allCategories.addAll(cat.children);
+                }
+
+                return Column(
+                  children: allCategories.map((cat) => CategoryProductRow(
+                    key: ValueKey(cat.id), 
+                    category: cat
+                  )).toList(),
+                );
+              },
+            ),
+            
+            // "Show All Products" Button at the End
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
+              child: SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00599c),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const AllProductsScreen()));
+                  },
+                  child: const Text("Show All Products", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ),
+            
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CategoryProductRow extends StatefulWidget {
+  final Category category;
+  const CategoryProductRow({required this.category, super.key});
+
+  @override
+  State<CategoryProductRow> createState() => _CategoryProductRowState();
+}
+
+class _CategoryProductRowState extends State<CategoryProductRow> {
+  late Future<List<Product>> _productsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(CategoryProductRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.category.id != oldWidget.category.id) {
+      _load();
+    }
+  }
+
+  void _load() {
+    // This will hit the memory cache first
+    _productsFuture = MagentoAPI().fetchProducts(
+      categoryId: widget.category.id,
+      pageSize: 10, 
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Product>>(
+      future: _productsFuture,
+      builder: (context, snapshot) {
+        
+        // CHANGED: No loading spinner here. 
+        // We rely on the parent (RefreshIndicator or Splash) to show loading status.
+        // If data is not ready, we show nothing (it will just 'pop' in).
+        if (snapshot.connectionState == ConnectionState.waiting) {
+           return const SizedBox.shrink();
+        }
+
+        // Hide if error or no products
+        if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final products = snapshot.data!;
+        
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Section Header
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Featured Products', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF00599c))),
+                  Text(
+                    widget.category.name,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF00599c)),
+                  ),
                   TextButton(
                     onPressed: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const AllProductsScreen()));
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => CategoryDetailScreen(category: widget.category)));
                     },
                     child: const Text('See all', style: TextStyle(color: Color(0xFFF54336))),
                   )
                 ],
               ),
             ),
-
-            // Products Grid
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: FutureBuilder<List<Product>>(
-                future: _productsFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
-                  } else if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
-                    return const Center(child: Text("No Products Found"));
-                  }
-                  final products = snapshot.data!;
-                  return GridView.builder(
-                    physics: const NeverScrollableScrollPhysics(),
-                    shrinkWrap: true,
-                    itemCount: products.length,
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 0.7,
+            
+            // Horizontal Product List
+            SizedBox(
+              height: 260, 
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: products.length,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                itemBuilder: (context, index) {
+                  final product = products[index];
+                  return Container(
+                    width: 160, 
+                    margin: const EdgeInsets.only(right: 12, bottom: 5),
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.pushNamed(context, '/productDetail', arguments: product);
+                      },
+                      child: ProductCard(
+                        name: product.name,
+                        price: product.price.toStringAsFixed(2),
+                        imageUrl: product.imageUrl,
+                      ),
                     ),
-                    itemBuilder: (context, index) {
-                      final product = products[index];
-                      return GestureDetector(
-                        onTap: () {
-                          Navigator.pushNamed(context, '/productDetail', arguments: product);
-                        },
-                        child: ProductCard(
-                          name: product.name,
-                          price: product.price.toStringAsFixed(2),
-                          imageUrl: product.imageUrl,
-                        ),
-                      );
-                    },
                   );
                 },
               ),
             ),
           ],
-        ),
-      ),
+        );
+      },
     );
   }
 }
