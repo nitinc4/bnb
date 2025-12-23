@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../models/magento_models.dart';
 import '../api/magento_api.dart';
 import '../widgets/product_card.dart';
-import 'product_detail_screen.dart';
 
 class CategoryDetailScreen extends StatefulWidget {
   final Category category;
