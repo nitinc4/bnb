@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart'; // Import Provider
-
+import 'screens/support_screen.dart';
 import 'providers/cart_provider.dart';
 import 'models/magento_models.dart';
 
@@ -58,6 +58,7 @@ class MyApp extends StatelessWidget {
         '/home': (context) => const HomeScreen(),
         '/cart': (context) => const CartScreen(),
         '/categories': (context) => const CategoriesScreen(),
+        '/support': (context) => const SupportScreen(isEmbedded: false),
       },
       onGenerateRoute: (settings) {
         if (settings.name == '/productDetail') {

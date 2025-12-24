@@ -133,6 +133,15 @@ class _AppDrawerState extends State<AppDrawer> {
                   },
                 ),
                 ListTile(
+                  leading: const Icon(Icons.support_agent),
+                  title: const Text('Support Chat'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    // Navigate to the standalone support route
+                    Navigator.pushNamed(context, '/support');
+                  },
+                ),
+                ListTile(
                   leading: const Icon(Icons.info_outline),
                   title: const Text('About Us'),
                   onTap: () {

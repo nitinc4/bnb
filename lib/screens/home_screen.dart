@@ -14,6 +14,7 @@ import 'categories_screen.dart';
 import 'category_detail_screen.dart';
 import 'search_screen.dart'; 
 import 'all_products_screen.dart';
+import 'support_screen.dart'; 
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -101,9 +102,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final List<Widget> pages = [
       KeyedSubtree(key: const ValueKey('homeTab'), child: _buildHomeTab()),
-      const CategoriesScreen(key: ValueKey('categoriesTab')), 
-      const CartScreen(key: ValueKey('cartTab')), 
+      const CategoriesScreen(key: ValueKey('categoriesTab')),
+      const CartScreen(key: ValueKey('cartTab')),
       const ProfileScreen(key: ValueKey('profileTab')),
+      const SupportScreen(key: ValueKey('supportTab'), isEmbedded: true),
     ];
 
     return Scaffold(
@@ -152,6 +154,7 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(icon: Icon(Icons.category_outlined), label: 'Categories'),
           BottomNavigationBarItem(icon: Icon(Icons.shopping_cart_outlined), label: 'Cart'),
           BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Profile'),
+          BottomNavigationBarItem(icon: Icon(Icons.support_agent), label: 'Support'),
         ],
       ),
     );
