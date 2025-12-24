@@ -18,25 +18,92 @@ class ProductDetailScreen extends StatefulWidget {
 class _ProductDetailScreenState extends State<ProductDetailScreen> {
   late Product _currentProduct;
   bool _isLoadingDetails = false;
+  
+  // Storage for More Information (Specs)
+  Map<String, String> _specs = {};
+  bool _isLoadingSpecs = false;
 
   @override
   void initState() {
     super.initState();
     _currentProduct = widget.product;
-    if (_currentProduct.description.isEmpty) _fetchFullDetails();
+    _fetchFullDetails();
   }
 
   Future<void> _fetchFullDetails() async {
     setState(() => _isLoadingDetails = true);
     final api = MagentoAPI();
+    
+    // 1. Fetch Basic Product Details (Description, etc.)
     final fullProduct = await api.fetchProductBySku(_currentProduct.sku);
-    if (fullProduct != null && mounted) {
+    
+    // 2. Fetch Tier Prices (Buy more save more)
+    final tierPrices = await api.fetchTierPrices(_currentProduct.sku);
+
+    if (mounted) {
       setState(() {
-        _currentProduct = fullProduct;
+        List<TierPrice> finalTiers = [];
+
+        if (tierPrices.isNotEmpty) {
+          finalTiers = tierPrices;
+        } else if (fullProduct != null && fullProduct.tierPrices.isNotEmpty) {
+          finalTiers = fullProduct.tierPrices;
+        } else {
+          finalTiers = _currentProduct.tierPrices;
+        }
+
+        if (fullProduct != null) {
+          _currentProduct = fullProduct.copyWith(tierPrices: finalTiers);
+        } else {
+          _currentProduct = _currentProduct.copyWith(tierPrices: finalTiers);
+        }
+        
         _isLoadingDetails = false;
       });
-    } else {
-      if (mounted) setState(() => _isLoadingDetails = false);
+      
+      api.updateProductCache(_currentProduct);
+
+      // 3. Fetch Specifications
+      if (_currentProduct.attributeSetId > 0) {
+        _fetchSpecifications(api, _currentProduct.attributeSetId);
+      }
+    }
+  }
+
+  Future<void> _fetchSpecifications(MagentoAPI api, int attributeSetId) async {
+    setState(() => _isLoadingSpecs = true);
+    
+    final attributes = await api.fetchAttributesBySet(attributeSetId);
+    
+    Map<String, String> newSpecs = {};
+    
+    _currentProduct.customAttributes.forEach((code, value) {
+      try {
+        final attrDef = attributes.firstWhere((a) => a.code == code);
+        
+        String displayValue = value.toString();
+        
+        if (attrDef.frontendInput == 'select') {
+          final option = attrDef.options.firstWhere(
+            (o) => o.value == value.toString(), 
+            orElse: () => AttributeOption(label: value.toString(), value: value.toString())
+          );
+          displayValue = option.label;
+        } else if (attrDef.frontendInput == 'boolean') {
+           displayValue = (value == '1' || value == 1) ? "Yes" : "No";
+        }
+        
+        newSpecs[attrDef.label] = displayValue;
+      } catch (e) {
+        // Attribute definition not found
+      }
+    });
+
+    if (mounted) {
+      setState(() {
+        _specs = newSpecs;
+        _isLoadingSpecs = false;
+      });
     }
   }
 
@@ -44,15 +111,13 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     await _fetchFullDetails();
   }
 
-  // --- Open RFQ Webview ---
   void _openRFQ() {
-    // Construct URL with parameters
     final String rfqUrl = "https://rfq.buynutbolts.com/rfq.php"
         "?sku=${Uri.encodeComponent(_currentProduct.sku)}"
         "&name=${Uri.encodeComponent(_currentProduct.name)}"
         "&part=${Uri.encodeComponent(_currentProduct.sku)}"
         "&qty=1"
-        "&url=${Uri.encodeComponent('https://buynutbolts.com')}"; // Fallback URL since slug is missing
+        "&url=${Uri.encodeComponent('https://buynutbolts.com')}";
 
     Navigator.push(
       context,
@@ -93,6 +158,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // 1. Image
               SizedBox(
                 height: 300, width: double.infinity,
                 child: _currentProduct.imageUrl.isNotEmpty
@@ -104,17 +170,75 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     )
                   : Container(color: Colors.grey.shade100, child: const Icon(Icons.image, size: 50, color: Colors.grey)),
               ),
+
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // 2. Title & SKU
                     Text(_currentProduct.name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     Text("SKU: ${_currentProduct.sku}", style: TextStyle(color: Colors.grey.shade600)),
                     
-                    // --- RFQ Button ---
                     const SizedBox(height: 16),
+                    const Divider(),
+                    const SizedBox(height: 16),
+
+                    // 3. DESCRIPTION (Moved UP)
+                    const Text("Description", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 8),
+                    if (_isLoadingDetails) 
+                      const LinearProgressIndicator(color: Color(0xFF00599c))
+                    else
+                      Text(_currentProduct.description.isNotEmpty ? _currentProduct.description : "No description available.", style: const TextStyle(color: Colors.black54, height: 1.5)),
+
+                    const SizedBox(height: 24),
+                    const Divider(),
+                    const SizedBox(height: 16),
+
+                    // 4. TIER PRICING TABLE (Moved after Description)
+                    if (_currentProduct.tierPrices.isNotEmpty) ...[
+                      const Text("Buy More, Save More", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF00599c))),
+                      const SizedBox(height: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                              color: Colors.grey.shade100,
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text("Quantity", style: TextStyle(fontWeight: FontWeight.bold)),
+                                  Text("Price Per Item", style: TextStyle(fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
+                            const Divider(height: 1),
+                            ..._currentProduct.tierPrices.map((tier) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text("Buy ${tier.qty}+"),
+                                    Text("₹${tier.price.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+
+                    // 5. RFQ BUTTON (Placed after Tiers)
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
@@ -128,14 +252,39 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         ),
                       ),
                     ),
+                    
+                    const SizedBox(height: 24),
+                    const Divider(),
                     const SizedBox(height: 16),
 
-                    const Text("Description", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    // 6. MORE INFORMATION (Moved to Bottom)
+                    const Text("More Information", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 8),
-                    if (_isLoadingDetails) 
-                      const LinearProgressIndicator(color: Color(0xFF00599c))
-                    else
-                      Text(_currentProduct.description.isNotEmpty ? _currentProduct.description : "No description available.", style: const TextStyle(color: Colors.black54, height: 1.5)),
+                    if (_isLoadingSpecs)
+                      const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
+                    else if (_specs.isNotEmpty)
+                      Table(
+                        border: TableBorder.all(color: Colors.grey.shade200),
+                        columnWidths: const {0: FlexColumnWidth(1), 1: FlexColumnWidth(1.5)},
+                        children: _specs.entries.map((entry) {
+                          return TableRow(
+                            decoration: BoxDecoration(color: Colors.white),
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.all(10),
+                                child: Text(entry.key, style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.w500)),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.all(10),
+                                child: Text(entry.value, style: const TextStyle(fontWeight: FontWeight.w500)),
+                              ),
+                            ],
+                          );
+                        }).toList(),
+                      )
+                    else 
+                      const Text("No additional specifications available.", style: TextStyle(color: Colors.grey)),
+
                     const SizedBox(height: 80), 
                   ],
                 ),

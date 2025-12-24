@@ -1,5 +1,42 @@
 // lib/models/magento_models.dart
 
+class TierPrice {
+  final double price;
+  final int qty;
+  final String customerGroup;
+  final double? percentageValue;
+
+  TierPrice({
+    required this.price,
+    required this.qty,
+    required this.customerGroup,
+    this.percentageValue,
+  });
+
+  factory TierPrice.fromJson(Map<String, dynamic> json) {
+    // FIX: Magento returns 'price' in some endpoints and 'value' in others (like search)
+    double parsedPrice = (json['price'] as num?)?.toDouble() ?? 
+                         (json['value'] as num?)?.toDouble() ?? 
+                         0.0;
+
+    return TierPrice(
+      price: parsedPrice,
+      qty: (json['qty_ordered'] ?? json['qty'] as num?)?.toInt() ?? 1,
+      customerGroup: json['customer_group']?.toString() ?? 'All',
+      percentageValue: (json['percentage_value'] as num?)?.toDouble(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'price': price,
+      'qty': qty,
+      'customer_group': customerGroup,
+      'percentage_value': percentageValue,
+    };
+  }
+}
+
 class Product {
   final String name;
   final String sku;
@@ -7,7 +44,8 @@ class Product {
   final String imageUrl;
   final String description;
   final int attributeSetId;
-  final Map<String, dynamic> customAttributes; // New: Store all attributes for filtering
+  final Map<String, dynamic> customAttributes; 
+  final List<TierPrice> tierPrices; 
 
   Product({
     required this.name,
@@ -17,6 +55,7 @@ class Product {
     required this.description,
     this.attributeSetId = 0,
     this.customAttributes = const {},
+    this.tierPrices = const [],
   });
 
   Map<String, dynamic> toJson() {
@@ -28,10 +67,20 @@ class Product {
       'description': description,
       'attribute_set_id': attributeSetId,
       'custom_attributes_map': customAttributes, 
+      // NEW: Persist tier prices to cache
+      'tier_prices': tierPrices.map((e) => e.toJson()).toList(),
     };
   }
 
   factory Product.fromStorage(Map<String, dynamic> json) {
+    // Parse cached tier prices
+    List<TierPrice> cachedTiers = [];
+    if (json['tier_prices'] != null) {
+      cachedTiers = (json['tier_prices'] as List)
+          .map((e) => TierPrice.fromJson(e))
+          .toList();
+    }
+
     return Product(
       name: json['name'] ?? '',
       sku: json['sku'] ?? '',
@@ -40,11 +89,11 @@ class Product {
       description: json['description'] ?? '',
       attributeSetId: json['attribute_set_id'] ?? 0,
       customAttributes: json['custom_attributes_map'] ?? {},
+      tierPrices: cachedTiers,
     );
   }
 
   factory Product.fromJson(Map<String, dynamic> json) {
-    // 1. Parse all custom attributes into a Map for easy access
     Map<String, dynamic> attributesMap = {};
     if (json['custom_attributes'] != null) {
       for (var item in json['custom_attributes']) {
@@ -70,6 +119,14 @@ class Product {
     desc = desc.replaceAll(RegExp(r'<[^>]*>'), '');
     if (desc.isEmpty) desc = "No description available.";
 
+    // Parse Tier Prices from standard API response
+    List<TierPrice> tiers = [];
+    if (json['tier_prices'] != null) {
+      tiers = (json['tier_prices'] as List)
+          .map((e) => TierPrice.fromJson(e))
+          .toList();
+    }
+
     return Product(
       name: json['name'] ?? 'Unknown',
       sku: json['sku'] ?? '',
@@ -77,11 +134,26 @@ class Product {
       imageUrl: fullImageUrl,
       description: desc,
       attributeSetId: json['attribute_set_id'] ?? 0,
-      customAttributes: attributesMap, // Store the map
+      customAttributes: attributesMap,
+      tierPrices: tiers,
+    );
+  }
+  
+  Product copyWith({List<TierPrice>? tierPrices, String? description, Map<String, dynamic>? customAttributes}) {
+    return Product(
+      name: name,
+      sku: sku,
+      price: price,
+      imageUrl: imageUrl,
+      description: description ?? this.description,
+      attributeSetId: attributeSetId,
+      customAttributes: customAttributes ?? this.customAttributes,
+      tierPrices: tierPrices ?? this.tierPrices,
     );
   }
 }
 
+// ... (Rest of the file: Category, OrderItem, Order, CartItem, AttributeOption, ProductAttribute remain unchanged)
 class Category {
   final int id;
   final String name;
@@ -299,8 +371,6 @@ class CartItem {
     );
   }
 }
-
-// --- NEW CLASSES FOR FILTERS ---
 
 class AttributeOption {
   final String label;

@@ -14,28 +14,30 @@ class MagentoAPI {
   late final MagentoOAuthClient _oauthClient;
 
   static List<Category> cachedCategories = [];
-  static List<Product> cachedProducts = []; // Caches "All Products" (No Filter)
-  
-  // NEW: Cache for individual category product lists
+  static List<Product> cachedProducts = []; 
   static Map<int, List<Product>> categoryProductsCache = {}; 
-  
   static Map<String, Category> _detailsCache = {};
   static Map<String, dynamic>? cachedUser; 
 
+  // UPDATED: Added new codes to exclude (required_options, has_options, etc.)
   static const List<String> _excludedAttributeCodes = [
     "ship_bundle_items", "page_layout", "gift_message_available", "tax_class_id",
     "options_container", "custom_layout_update", "custom_design",
     "msrp_display_actual_price_type", "custom_layout", "price_view", "status",
-    "quantity_and_stock_status", "visibility", "country_of_manufacture",
-    "gst_rate", "layout", "enable_product"
+    "quantity_and_stock_status", "visibility", "gst_rate", "layout", "enable_product",
+    "required_options", "has_options", "category_ids", "url_key", "meta_title", 
+    "meta_keyword", "meta_description", "product_review_rating_summary" 
   ];
 
+  // UPDATED: Added new labels to exclude
   static const List<String> _excludedAttributeLabels = [
     "ship bundle items", "layout", "allow gift message", "gst rate", 
     "display product option in", "custom layout update", "new theme", 
     "to apply on products below minimum set price", "new layout", 
     "display price", "price view", "enable product", "tax class", 
-    "quantity", "visibility", "country of manufacture"
+    "quantity", "visibility", "url key", "meta title", "product hsn code", 
+    "gst rate to apply on products below minimum set price", "categories",
+    "product review rating summary"
   ];
 
   MagentoAPI() {
@@ -48,7 +50,37 @@ class MagentoAPI {
     );
   }
 
-  // FILTERS AND SORT 
+  // --- CACHE UPDATE METHOD ---
+  Future<void> updateProductCache(Product updatedProduct) async {
+    bool changed = false;
+
+    // 1. Update Global Cache
+    final index = cachedProducts.indexWhere((p) => p.sku == updatedProduct.sku);
+    if (index != -1) {
+      cachedProducts[index] = updatedProduct;
+      changed = true;
+    }
+
+    // 2. Update Category Caches
+    categoryProductsCache.forEach((key, list) {
+      final catIndex = list.indexWhere((p) => p.sku == updatedProduct.sku);
+      if (catIndex != -1) {
+        list[catIndex] = updatedProduct;
+      }
+    });
+
+    // 3. Persist Global Cache to Storage
+    if (changed) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('cached_products_data', jsonEncode(cachedProducts.map((e) => e.toJson()).toList()));
+      } catch (e) {
+        debugPrint("Error updating product cache: $e");
+      }
+    }
+  }
+
+  // ... (fetchProducts, fetchTierPrices, etc. remain unchanged) ...
   Future<List<Product>> fetchProducts({
     int? categoryId, 
     int page = 1, 
@@ -57,18 +89,14 @@ class MagentoAPI {
     String? sortField,     
     String? sortDirection, 
   }) async {
-    
     bool isDefaultSort = sortField == null || sortField.isEmpty;
     bool hasFilters = filters != null && filters.isNotEmpty;
     bool isFirstPage = page == 1;
     bool isAllProducts = categoryId == null;
 
-    // 1. Check Global Cache (All Products)
     if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort && cachedProducts.isNotEmpty) {
       return cachedProducts;
     }
-
-    // 2. Check Category Specific Cache
     if (categoryId != null && isFirstPage && !hasFilters && isDefaultSort) {
       if (categoryProductsCache.containsKey(categoryId) && categoryProductsCache[categoryId]!.isNotEmpty) {
         return categoryProductsCache[categoryId]!;
@@ -80,7 +108,6 @@ class MagentoAPI {
         "searchCriteria[pageSize]": pageSize.toString(),
         "searchCriteria[currentPage]": page.toString(),
       };
-
       int groupIndex = 0;
 
       if (categoryId != null) {
@@ -89,7 +116,6 @@ class MagentoAPI {
         queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][condition_type]"] = "eq";
         groupIndex++;
       }
-
       if (hasFilters) {
         filters.forEach((key, value) {
           queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][field]"] = key;
@@ -98,7 +124,6 @@ class MagentoAPI {
           groupIndex++;
         });
       }
-
       if (!isDefaultSort && sortDirection != null) {
         queryParams["searchCriteria[sortOrders][0][field]"] = sortField;
         queryParams["searchCriteria[sortOrders][0][direction]"] = sortDirection;
@@ -111,18 +136,12 @@ class MagentoAPI {
         final items = data["items"] as List? ?? [];
         final products = items.map((json) => Product.fromJson(json)).toList();
 
-        // Populate Global Cache
         if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort) {
           cachedProducts = products;
-          final prefs = await SharedPreferences.getInstance();
-          prefs.setString('cached_products_data', jsonEncode(products.map((e) => e.toJson()).toList()));
         }
-
-        // Populate Category Cache
         if (categoryId != null && isFirstPage && !hasFilters && isDefaultSort) {
           categoryProductsCache[categoryId] = products;
         }
-
         return products;
       }
     } catch (e) {
@@ -130,21 +149,24 @@ class MagentoAPI {
     }
     return [];
   }
-
-  Future<void> clearCache() async {
-    cachedCategories.clear();
-    cachedProducts.clear();
-    categoryProductsCache.clear(); // Clear category cache
-    _detailsCache.clear();
-    cachedUser = null;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('cached_categories_data');
-    await prefs.remove('cached_products_data');
-    await prefs.remove('category_details_cache');
-    await prefs.remove('cached_user_data');
+  
+  Future<List<TierPrice>> fetchTierPrices(String sku) async {
+    try {
+      final response = await _oauthClient.post(
+        "/products/tier-prices-information", 
+        body: jsonEncode({"skus": [sku]})
+      );
+      
+      if (response.statusCode == 200) {
+        final List data = jsonDecode(response.body);
+        return data.map((e) => TierPrice.fromJson(e)).toList();
+      }
+    } catch (e) {
+      debugPrint("Fetch Tier Prices Error: $e");
+    }
+    return [];
   }
 
-  // ... (Rest of the file remains exactly the same as previous versions)
   Future<List<ProductAttribute>> fetchAttributesBySet(int attributeSetId) async {
     try {
       final response = await _oauthClient.get("/products/attribute-sets/$attributeSetId/attributes");
@@ -153,14 +175,18 @@ class MagentoAPI {
         return data
             .map((e) => ProductAttribute.fromJson(e))
             .where((attr) {
-              final isSelect = attr.frontendInput == 'select' || attr.frontendInput == 'multiselect';
-              final hasOptions = attr.options.isNotEmpty;
+              final isRelevantType = attr.frontendInput == 'select' || 
+                                     attr.frontendInput == 'multiselect' ||
+                                     attr.frontendInput == 'text' || 
+                                     attr.frontendInput == 'weight';
+              
               final labelLower = attr.label.toLowerCase().trim();
               final codeLower = attr.code.toLowerCase().trim();
-              final codeHumanized = codeLower.replaceAll('_', ' ');
-              final isLabelExcluded = _excludedAttributeLabels.any((ex) => labelLower == ex.toLowerCase().trim() || codeHumanized.contains(ex.toLowerCase().trim()));
+              
+              final isLabelExcluded = _excludedAttributeLabels.any((ex) => labelLower == ex.toLowerCase().trim());
               final isCodeExcluded = _excludedAttributeCodes.contains(codeLower);
-              return isSelect && hasOptions && !isLabelExcluded && !isCodeExcluded;
+
+              return isRelevantType && !isLabelExcluded && !isCodeExcluded;
             })
             .toList();
       }
@@ -183,10 +209,21 @@ class MagentoAPI {
         final items = data['items'] as List? ?? [];
         return items.map((e) => ProductAttribute.fromJson(e)).where((attr) => (attr.frontendInput == 'select' || attr.frontendInput == 'multiselect') && attr.options.isNotEmpty).toList();
       }
-    } catch (e) {
-      debugPrint("Fetch Global Attributes Error: $e");
-    }
+    } catch (e) { debugPrint("Fetch Global Attributes Error: $e"); }
     return [];
+  }
+
+  Future<void> clearCache() async {
+    cachedCategories.clear();
+    cachedProducts.clear();
+    categoryProductsCache.clear();
+    _detailsCache.clear();
+    cachedUser = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('cached_categories_data');
+    await prefs.remove('cached_products_data');
+    await prefs.remove('category_details_cache');
+    await prefs.remove('cached_user_data');
   }
 
   Future<List<Product>> _fetchProductsBySkus(List<String> skus) async {
@@ -205,9 +242,7 @@ class MagentoAPI {
         final items = data["items"] as List? ?? [];
         return items.map((json) => Product.fromJson(json)).toList();
       }
-    } catch (e) {
-      debugPrint("Error fetching cart product details: $e");
-    }
+    } catch (e) { debugPrint("Error fetching cart product details: $e"); }
     return [];
   }
 
@@ -218,9 +253,7 @@ class MagentoAPI {
       try {
         cachedCategories = (jsonDecode(prefs.getString('cached_categories_data')!) as List).map((e) => Category.fromJson(e)).toList();
         if (cachedCategories.isNotEmpty) return cachedCategories;
-      } catch (e) {
-        debugPrint("Load Cached Categories Error: $e");
-      }
+      } catch (e) { debugPrint("Load Cached Categories Error: $e"); }
     }
     try {
       final response = await _oauthClient.get("/categories");
@@ -231,9 +264,7 @@ class MagentoAPI {
         prefs.setString('cached_categories_data', jsonEncode(cachedCategories.map((e) => e.toJson()).toList()));
         return cachedCategories;
       }
-    } catch (e) {
-      debugPrint("Fetch Categories Error: $e");
-    }
+    } catch (e) { debugPrint("Fetch Categories Error: $e"); }
     return [];
   }
 
@@ -242,9 +273,7 @@ class MagentoAPI {
     if (_detailsCache.isEmpty && prefs.containsKey('category_details_cache')) {
       try {
         _detailsCache = (jsonDecode(prefs.getString('category_details_cache')!) as Map<String, dynamic>).map((k, v) => MapEntry(k, Category.fromJson(v)));
-      } catch (e) {
-        debugPrint("Load Category Details Cache Error: $e");
-      }
+      } catch (e) { debugPrint("Load Category Details Cache Error: $e"); }
     }
     List<Future<Category>> tasks = categories.map((cat) async {
       final idStr = cat.id.toString();
@@ -259,17 +288,13 @@ class MagentoAPI {
           _detailsCache[idStr] = c;
           return Category(id: c.id, name: c.name, isActive: c.isActive, imageUrl: c.imageUrl, children: cat.children);
         }
-      } catch (e) {
-        debugPrint("Enrich Category ${cat.id} Error: $e");
-      }
+      } catch (e) { debugPrint("Enrich Category ${cat.id} Error: $e"); }
       return cat;
     }).toList();
     final results = await Future.wait(tasks);
     try {
       prefs.setString('category_details_cache', jsonEncode(_detailsCache.map((k, v) => MapEntry(k, v.toJson()))));
-    } catch (e) {
-      debugPrint("Save Category Details Cache Error: $e");
-    }
+    } catch (e) { debugPrint("Save Category Details Cache Error: $e"); }
     return results.where((c) => c.isActive).toList();
   }
 
@@ -278,9 +303,7 @@ class MagentoAPI {
       final response = await _oauthClient.get("/products", params: {"searchCriteria[filter_groups][0][filters][0][field]": "sku", "searchCriteria[filter_groups][0][filters][0][value]": sku});
       final items = (jsonDecode(response.body)["items"] as List? ?? []);
       if (items.isNotEmpty) return Product.fromJson(items.first);
-    } catch (e) {
-      debugPrint("Fetch Product by SKU Error: $e");
-    }
+    } catch (e) { debugPrint("Fetch Product by SKU Error: $e"); }
     return null;
   }
 
@@ -303,9 +326,7 @@ class MagentoAPI {
       if (response.statusCode == 200) {
         return (jsonDecode(response.body)["items"] as List? ?? []).map((e) => Product.fromJson(e)).toList();
       }
-    } catch (e) {
-      debugPrint("Search Products Error: $e");
-    }
+    } catch (e) { debugPrint("Search Products Error: $e"); }
     return [];
   }
 
