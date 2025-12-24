@@ -25,7 +25,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   
-  // Initialize with cached data immediately
+  // Initialize with cached data immediately so it shows instantly
   Future<List<Category>> _categoriesFuture = Future.value(MagentoAPI.cachedCategories);
   
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -33,10 +33,26 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // If cache is empty (e.g. restart without splash), fetch it.
+    // 1. Check if cache is actually empty (e.g. cold start without splash).
+    // If empty, fetch immediately.
     if (MagentoAPI.cachedCategories.isEmpty) {
       _categoriesFuture = MagentoAPI().fetchCategories();
     }
+
+    // 2. Perform background background refresh to keep data fresh
+    // This runs after the build frame so it doesn't block UI
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _performBackgroundFetch();
+    });
+  }
+
+  Future<void> _performBackgroundFetch() async {
+    debugPrint("[HomeScreen] Starting background data refresh...");
+    // Refresh Cart
+    Provider.of<CartProvider>(context, listen: false).fetchCart();
+    // Note: We don't forcefully refresh categories/products here to avoid 
+    // replacing the UI content while the user is looking at it, 
+    // but you could call MagentoAPI().warmUpCache() here if you wanted live updates.
   }
 
   Future<void> _onRefresh() async {
@@ -55,8 +71,6 @@ class _HomeScreenState extends State<HomeScreen> {
       final categories = await categoriesTask;
 
       // 4. Pre-fetch products for the top 5 categories 
-      // This ensures the Refresh Indicator stays visible until products are ready,
-      // creating a "single loading circle" experience.
       final List<Category> allCategories = [];
       for (var cat in categories) {
         allCategories.add(cat);
@@ -308,7 +322,7 @@ class _CategoryProductRowState extends State<CategoryProductRow> {
   }
 
   void _load() {
-    // This will hit the memory cache first
+    // This uses cached data if available (instant), otherwise fetches network
     _productsFuture = MagentoAPI().fetchProducts(
       categoryId: widget.category.id,
       pageSize: 10, 
@@ -321,9 +335,7 @@ class _CategoryProductRowState extends State<CategoryProductRow> {
       future: _productsFuture,
       builder: (context, snapshot) {
         
-        // CHANGED: No loading spinner here. 
-        // We rely on the parent (RefreshIndicator or Splash) to show loading status.
-        // If data is not ready, we show nothing (it will just 'pop' in).
+        // Use SizedBox.shrink for loading to prevent layout shifts/spinners jumping
         if (snapshot.connectionState == ConnectionState.waiting) {
            return const SizedBox.shrink();
         }

@@ -19,7 +19,6 @@ class MagentoAPI {
   static Map<String, Category> _detailsCache = {};
   static Map<String, dynamic>? cachedUser; 
 
-  // UPDATED: Added new codes to exclude (required_options, has_options, etc.)
   static const List<String> _excludedAttributeCodes = [
     "ship_bundle_items", "page_layout", "gift_message_available", "tax_class_id",
     "options_container", "custom_layout_update", "custom_design",
@@ -29,7 +28,6 @@ class MagentoAPI {
     "meta_keyword", "meta_description", "product_review_rating_summary" 
   ];
 
-  // UPDATED: Added new labels to exclude
   static const List<String> _excludedAttributeLabels = [
     "ship bundle items", "layout", "allow gift message", "gst rate", 
     "display product option in", "custom layout update", "new theme", 
@@ -48,6 +46,40 @@ class MagentoAPI {
       token: dotenv.env['ACCESS_TOKEN'] ?? '',
       tokenSecret: dotenv.env['ACCESS_TOKEN_SECRET'] ?? '',
     );
+  }
+
+  // --- NEW: CENTRALIZED CACHE WARM UP ---
+  Future<void> warmUpCache() async {
+    debugPrint("[MagentoAPI] Warming up cache...");
+    
+    // 1. Fetch Categories (Critical for Menu)
+    // This method already populates cachedCategories
+    await fetchCategories();
+    
+    // 2. Fetch Initial Products (Critical for Home Screen)
+    // We force a fetch to ensure fresh data on app start
+    try {
+      debugPrint("[MagentoAPI] Pre-fetching products...");
+      final freshProducts = await fetchProducts(page: 1, pageSize: 20);
+      // fetchProducts automatically updates cachedProducts, but we ensure it here
+      if (freshProducts.isNotEmpty) {
+        cachedProducts = freshProducts;
+      }
+    } catch (e) {
+      debugPrint("[MagentoAPI] Product warm-up failed: $e");
+    }
+
+    // 3. User Data (if logged in)
+    final token = await _getCustomerToken();
+    if (token != null) {
+      debugPrint("[MagentoAPI] Preloading User Data...");
+      // We don't await these strictly to allow UI to proceed if needed, 
+      // but in Splash Screen we usually wait.
+      await Future.wait([
+        fetchCustomerDetails(token),
+        getCartItems(), // This just warms up the HTTP connection basically
+      ]);
+    }
   }
 
   // --- CACHE UPDATE METHOD ---
@@ -80,7 +112,6 @@ class MagentoAPI {
     }
   }
 
-  // ... (fetchProducts, fetchTierPrices, etc. remain unchanged) ...
   Future<List<Product>> fetchProducts({
     int? categoryId, 
     int page = 1, 
@@ -94,9 +125,14 @@ class MagentoAPI {
     bool isFirstPage = page == 1;
     bool isAllProducts = categoryId == null;
 
+    // Return cache immediately if available and we are just loading the main list
+    // NOTE: For 'warmUpCache' calls, we might bypass this check internally, 
+    // but for UI calls, this makes it instant.
     if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort && cachedProducts.isNotEmpty) {
       return cachedProducts;
     }
+    
+    // Check Category Cache
     if (categoryId != null && isFirstPage && !hasFilters && isDefaultSort) {
       if (categoryProductsCache.containsKey(categoryId) && categoryProductsCache[categoryId]!.isNotEmpty) {
         return categoryProductsCache[categoryId]!;
@@ -136,6 +172,7 @@ class MagentoAPI {
         final items = data["items"] as List? ?? [];
         final products = items.map((json) => Product.fromJson(json)).toList();
 
+        // Update Caches
         if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort) {
           cachedProducts = products;
         }

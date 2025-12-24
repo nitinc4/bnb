@@ -46,7 +46,6 @@ class _LoginScreenState extends State<LoginScreen> {
     final token = await api.loginCustomer(email, password);
 
     if (token != null) {
-      debugPrint("[App] API Login Success. Token: $token");
       
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('customer_token', token);
@@ -69,6 +68,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  // UPDATED: Simplified Guest Handler
   Future<void> _handleGuest() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('is_guest', true);
@@ -76,6 +76,8 @@ class _LoginScreenState extends State<LoginScreen> {
     await prefs.remove('customer_token'); 
 
     if (mounted) {
+      // Just navigate. HomeScreen will handle checks if data needs to be fetched.
+      // We use replacement so the user can't "back" into login easily without logging out.
       Navigator.pushReplacementNamed(context, '/home');
     }
   }

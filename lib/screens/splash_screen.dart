@@ -90,33 +90,18 @@ class _SplashScreenState extends State<SplashScreen>
     final cart = Provider.of<CartProvider>(context, listen: false);
 
     try {
-      // 1. Cart (FIXED: was loadCart(), now fetchCart())
+      debugPrint("[SplashScreen] Starting Cache Warm-up...");
+      
+      // Use the centralized warm-up method to pre-fetch everything
+      await api.warmUpCache();
+      
+      // Also fetch cart using Provider to update UI state listeners
       await cart.fetchCart();
 
-      // 2. Categories
-      final categories = await api.fetchCategories();
+      // Minimum splash visibility so it doesn't flash too fast
+      await Future.delayed(const Duration(seconds: 1));
 
-      // 3. Flatten categories for preload
-      final List<Category> allCategories = [];
-      for (final c in categories) {
-        allCategories.add(c);
-        allCategories.addAll(c.children);
-      }
-
-      // 4. Preload first few category products
-      final int limit = allCategories.length > 5 ? 5 : allCategories.length;
-      await Future.wait([
-        for (int i = 0; i < limit; i++)
-          api.fetchProducts(
-            categoryId: allCategories[i].id,
-            pageSize: 10,
-          )
-      ]);
-
-      // 5. Minimum splash visibility
-      await Future.delayed(const Duration(seconds: 2));
-
-      // 6. Auth state routing
+      // Auth state routing
       final prefs = await SharedPreferences.getInstance();
       final hasLoggedIn = prefs.getBool('has_logged_in') ?? false;
       final isGuest = prefs.getBool('is_guest') ?? false;
