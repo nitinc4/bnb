@@ -33,13 +33,19 @@ class _CartScreenState extends State<CartScreen> {
     final token = prefs.getString('customer_token');
 
     if (token != null && token.isNotEmpty) {
-      // Navigate to Website Checkout. 
+      // FIX: Encode the token to prevent app crashes due to special characters
+      final String encodedToken = Uri.encodeComponent(token);
       
+      // Use the Bridge URL with the safe encoded token
+      final String bridgeUrl = "https://buynutbolts.com/mobile/auth/login?input_token=$encodedToken";
+
+      debugPrint("Launching Checkout Bridge: $bridgeUrl");
+
       Navigator.push(
         context, 
         MaterialPageRoute(
-          builder: (_) => const WebsiteWebViewScreen(
-            url: "https://buynutbolts.com/checkout/", 
+          builder: (_) => WebsiteWebViewScreen(
+            url: bridgeUrl, 
             title: "Checkout",
           )
         )

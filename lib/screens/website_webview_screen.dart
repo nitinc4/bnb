@@ -26,30 +26,35 @@ class _WebsiteWebViewScreenState extends State<WebsiteWebViewScreen> {
 
     // Initialize Controller
     _controller = WebViewController()
-      //Configure JavaScript Mode
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      
-      // Set Background Color
       ..setBackgroundColor(const Color(0x00000000))
-
-      // Enable Zoom (Fix for non-mobile optimized sites)
       ..enableZoom(true)
-      
-      // Implement Navigation Delegate
       ..setNavigationDelegate(
         NavigationDelegate(
           onProgress: (int progress) {
-            // Update loading bar.
+            // Optional: Update loading bar
           },
           onPageStarted: (String url) {
             if (mounted) setState(() => _isLoading = true);
           },
           onPageFinished: (String url) {
-            if (mounted) setState(() => _isLoading = false);
+            if (mounted) {
+              // HIDDEN HANDSHAKE LOGIC:
+              // If we are still on the bridge URL (the login script), keep loading true.
+              // Only remove the loader when we have been redirected (e.g. to /checkout/ or /customer/account/)
+              if (url.contains('/mobile/auth/login')) {
+                // Handshake in progress, keep spinner visible
+                return;
+              }
+              setState(() => _isLoading = false);
+            }
           },
-          
-          // CRITICAL SECURITY FEATURE: Navigation Restriction
           onNavigationRequest: (NavigationRequest request) {
+            // Allow bridge logic
+            if (request.url.contains('/mobile/auth/login')) {
+              return NavigationDecision.navigate;
+            }
+
             // Only website domain and RFQ subdomain allowed
             if (request.url.startsWith('https://buynutbolts.com') || 
                 request.url.startsWith('https://www.buynutbolts.com') ||
@@ -63,7 +68,6 @@ class _WebsiteWebViewScreenState extends State<WebsiteWebViewScreen> {
                return NavigationDecision.navigate;
             }
 
-            // Block everything else
             debugPrint('Blocking navigation to: ${request.url}');
             return NavigationDecision.prevent;
           },
@@ -98,9 +102,21 @@ class _WebsiteWebViewScreenState extends State<WebsiteWebViewScreen> {
       body: Stack(
         children: [
           WebViewWidget(controller: _controller),
+          
+          // Enhanced Loading State
           if (_isLoading)
-            const Center(
-              child: CircularProgressIndicator(color: Color(0xFF00599c)),
+            Container(
+              color: Colors.white,
+              child: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: Color(0xFF00599c)),
+                    SizedBox(height: 16),
+                    Text("Securely logging you in...", style: TextStyle(color: Colors.grey)),
+                  ],
+                ),
+              ),
             ),
         ],
       ),
