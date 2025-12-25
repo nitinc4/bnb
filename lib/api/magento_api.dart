@@ -2,8 +2,8 @@
 // ignore_for_file: curly_braces_in_flow_control_structures
 
 import 'dart:convert';
-import 'package:flutter/foundation.dart' hide Category; // [FIX] Hide Category to prevent conflict
-// [FIX] Hide Category to prevent conflict
+import 'package:flutter/foundation.dart' hide Category; 
+import 'package:flutter/material.dart' hide Category;   
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,7 +11,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/magento_models.dart';
 import 'magento_oauth_client.dart'; 
 
-// [OPTIMIZATION] Top-level function for Isolate parsing
 List<Product> _parseProducts(String responseBody) {
   final data = jsonDecode(responseBody);
   final items = data["items"] as List? ?? [];
@@ -22,15 +21,16 @@ class MagentoAPI {
   final String baseUrl = dotenv.env['MAGENTO_BASE_URL'] ?? "https://buynutbolts.com";
   late final MagentoOAuthClient _oauthClient;
   
-  // [SECURITY] Use Secure Storage for sensitive data
   static const _secureStorage = FlutterSecureStorage();
 
   static List<Category> cachedCategories = [];
   static List<Product> cachedProducts = []; 
+  // [IMPORTANT] This is used by HomeScreen to show data instantly
   static Map<int, List<Product>> categoryProductsCache = {}; 
   static Map<String, Category> _detailsCache = {};
   static Map<String, dynamic>? cachedUser; 
 
+  // ... (Excluded Attributes Lists - Omitted for brevity, kept same as before) ...
   static const List<String> _excludedAttributeCodes = [
     "ship_bundle_items", "page_layout", "gift_message_available", "tax_class_id",
     "options_container", "custom_layout_update", "custom_design",
@@ -60,22 +60,36 @@ class MagentoAPI {
     );
   }
 
-  Future<void> warmUpCache() async {
-    debugPrint("[MagentoAPI] Warming up cache...");
-    await fetchCategories();
+  Future<void> warmUpHomeData() async {
+    debugPrint("[MagentoAPI] Warming up Home Data...");
+    
+    final categories = await fetchCategories();
+    
+    final List<Category> targetCategories = [];
+    for (var cat in categories) {
+      targetCategories.add(cat);
+      targetCategories.addAll(cat.children);
+    }
+
+    int limit = targetCategories.length > 5 ? 5 : targetCategories.length;
+    List<Future> tasks = [];
+
+    for (int i = 0; i < limit; i++) {
+      tasks.add(fetchProducts(
+        categoryId: targetCategories[i].id,
+        pageSize: 10,
+      ));
+    }
+    
     try {
-      debugPrint("[MagentoAPI] Pre-fetching products...");
-      final freshProducts = await fetchProducts(page: 1, pageSize: 20);
-      if (freshProducts.isNotEmpty) {
-        cachedProducts = freshProducts;
-      }
+      await Future.wait(tasks);
+      debugPrint("[MagentoAPI] Home Data Warm-up Complete.");
     } catch (e) {
-      debugPrint("[MagentoAPI] Product warm-up failed: $e");
+      debugPrint("[MagentoAPI] Home Warm-up Partial Fail: $e");
     }
 
     final token = await _getCustomerToken();
     if (token != null) {
-      debugPrint("[MagentoAPI] Preloading User Data...");
       await Future.wait([
         fetchCustomerDetails(token),
         getCartItems(), 
@@ -158,7 +172,6 @@ class MagentoAPI {
       final response = await _oauthClient.get("/products", params: queryParams);
       
       if (response.statusCode == 200) {
-        // [OPTIMIZATION] Use compute to offload parsing to background isolate
         final products = await compute(_parseProducts, response.body);
 
         if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort) {
@@ -259,6 +272,7 @@ class MagentoAPI {
 
   Future<List<Category>> fetchCategories() async {
     if (cachedCategories.isNotEmpty) return cachedCategories;
+    
     final prefs = await SharedPreferences.getInstance();
     if (prefs.containsKey('cached_categories_data')) {
       try {
@@ -455,7 +469,6 @@ class MagentoAPI {
     try { final r = await http.put(Uri.parse("$baseUrl/rest/V1/customers/me/password"), headers: {"Authorization": "Bearer $t", "Content-Type": "application/json"}, body: jsonEncode({"currentPassword": c, "newPassword": n})); return r.statusCode == 200; } catch (e) { return false; }
   }
 
-  // [SECURITY] Updated to use SecureStorage
   Future<String?> _getCustomerToken() async {
     return await _secureStorage.read(key: 'customer_token');
   }

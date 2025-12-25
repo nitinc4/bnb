@@ -1,9 +1,9 @@
 // lib/screens/categories_screen.dart
-// ignore: undefined_hidden_name
-import 'package:flutter/material.dart' hide Category; // [FIX] Hide Category
+import 'package:flutter/material.dart' hide Category;
 import '../api/magento_api.dart';
 import '../models/magento_models.dart';
 import 'category_detail_screen.dart';
+import '../widgets/bnb_shimmer.dart'; // [NEW]
 
 class CategoriesScreen extends StatefulWidget {
   const CategoriesScreen({super.key});
@@ -25,7 +25,6 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
 
   @override
   Widget build(BuildContext context) {
-
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -38,12 +37,12 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
         onRefresh: _handleRefresh,
         color: const Color(0xFF00599c),
         child: FutureBuilder<List<Category>>(
-          future: MagentoAPI().fetchCategories(), // Always calls API (which checks cache first)
+          future: MagentoAPI().fetchCategories(),
           builder: (context, snapshot) {
             final categories = snapshot.data ?? MagentoAPI.cachedCategories;
             
             if (categories.isEmpty && snapshot.connectionState == ConnectionState.waiting) {
-               return const Center(child: CircularProgressIndicator());
+               return BNBShimmer.categoryGrid(); // [FIX] Use Shimmer
             }
             
             if (categories.isEmpty) {

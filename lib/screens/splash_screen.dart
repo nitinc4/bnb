@@ -1,5 +1,4 @@
 // lib/screens/splash_screen.dart
-
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -24,8 +23,6 @@ class _SplashScreenState extends State<SplashScreen>
   late AnimationController _controller;
   late Animation<double> _animation;
   
-  // [FIX] Removed unused _storage field
-
   static const String _configEndpoint =
       'https://gist.githubusercontent.com/nitinc4/857f9007c5fed4ec2bae8decaf32c9f3/raw';
   static const String _requiredSignature =
@@ -73,9 +70,12 @@ class _SplashScreenState extends State<SplashScreen>
 
     try {
       debugPrint("[SplashScreen] Starting Cache Warm-up...");
-      await api.warmUpCache();
+      
+      
+      await api.warmUpHomeData();
+      
       await cart.fetchCart();
-      await Future.delayed(const Duration(seconds: 1));
+      await Future.delayed(const Duration(seconds: 1)); // Small delay for effect
 
       final prefs = await SharedPreferences.getInstance();
       final hasLoggedIn = prefs.getBool('has_logged_in') ?? false;
