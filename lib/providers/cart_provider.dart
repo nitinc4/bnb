@@ -1,7 +1,9 @@
 // lib/providers/cart_provider.dart
 import 'dart:convert';
+import 'dart:async'; // [OPTIMIZATION] For timer/debounce
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // [SECURITY]
 import '../models/magento_models.dart';
 import '../api/magento_api.dart';
 
@@ -9,6 +11,8 @@ class CartProvider with ChangeNotifier {
   List<CartItem> _items = [];
   bool _isLoading = false;
   final MagentoAPI _api = MagentoAPI();
+  Timer? _debounceTimer; // [OPTIMIZATION]
+  final _storage = const FlutterSecureStorage(); // [SECURITY]
 
   List<CartItem> get items => _items;
   bool get isLoading => _isLoading;
@@ -29,39 +33,29 @@ class CartProvider with ChangeNotifier {
     return total;
   }
 
-  // --- FETCH & MERGE LOGIC ---
   Future<void> fetchCart() async {
     _isLoading = true;
     notifyListeners();
 
-    // Always load local cache first for speed 
     await _loadLocalCart();
     
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('customer_token');
+    // [SECURITY] Read token securely
+    final token = await _storage.read(key: 'customer_token');
 
     if (token != null) {
-      // LOGGED IN? Check if we have guest items to merge
       await _mergeGuestItems(token);
-
-      // Sync with Server
       final serverItems = await _api.getCartItems();
       
       if (serverItems == null) {
-        // TOKEN EXPIRED OR ERROR -> Fallback to Guest
         debugPrint(" Token Invalid/Expired. Reverting to Guest Mode.");
-        await prefs.remove('customer_token');
+        await _storage.delete(key: 'customer_token'); // [SECURITY] Clean up
+        final prefs = await SharedPreferences.getInstance();
         await prefs.remove('cached_user_data');
         MagentoAPI.cachedUser = null;
-        
-        
       } else {
-        // Merge Server Items with Local Images
         final mergedList = _mergeServerWithLocalImages(serverItems, _items);
         _items = mergedList;
-        
-        // Save the authoritative list locally for next time
-        await _saveLocalCart();
+        _saveLocalCart(); // No need to await or debounce here, single call
       }
     } 
     
@@ -69,7 +63,6 @@ class CartProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // --- MERGE HELPER ---
   Future<void> _mergeGuestItems(String token) async {
     if (_items.isNotEmpty) {
       final guestItems = _items.where((i) => i.quoteId == 'guest_local').toList();
@@ -82,7 +75,6 @@ class CartProvider with ChangeNotifier {
     }
   }
 
-  // --- IMAGE PRESERVATION HELPER ---
   List<CartItem> _mergeServerWithLocalImages(List<CartItem> serverItems, List<CartItem> localItems) {
     return serverItems.map((sItem) {
       if (sItem.imageUrl != null && sItem.imageUrl!.isNotEmpty) {
@@ -99,12 +91,9 @@ class CartProvider with ChangeNotifier {
     }).toList();
   }
 
-  // --- ADD TO CART ---
   Future<void> addToCart(Product product, {int qty = 1}) async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('customer_token');
+    final token = await _storage.read(key: 'customer_token'); // [SECURITY]
 
-    // 1. Optimistic Local Update
     int index = _items.indexWhere((i) => i.sku == product.sku);
     if (index >= 0) {
       _items[index] = _items[index].copyWith(qty: _items[index].qty + qty);
@@ -112,16 +101,15 @@ class CartProvider with ChangeNotifier {
       _items.add(CartItem.fromProduct(product, qty));
     }
     notifyListeners();
-    _saveLocalCart();
+    _debounceSaveLocalCart(); // [OPTIMIZATION]
 
-    // 2. Server Sync (if logged in)
     if (token != null) {
       _api.addToCart(product.sku, qty).then((success) {
         if (success) {
           _api.getCartItems().then((serverItems) {
              if (serverItems != null) {
                _items = _mergeServerWithLocalImages(serverItems, _items);
-               _saveLocalCart();
+               _debounceSaveLocalCart();
                notifyListeners();
              }
           });
@@ -130,31 +118,27 @@ class CartProvider with ChangeNotifier {
     }
   }
 
-  // --- REMOVE ---
   Future<void> removeFromCart(CartItem item) async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('customer_token');
+    final token = await _storage.read(key: 'customer_token');
 
     _items.removeWhere((i) => i.sku == item.sku); 
     notifyListeners();
-    _saveLocalCart();
+    _debounceSaveLocalCart();
 
     if (token != null && item.itemId != 0) {
       _api.removeCartItem(item.itemId);
     }
   }
 
-  // --- UPDATE QTY ---
   Future<void> updateQty(CartItem item, int newQty) async {
     if (newQty < 1) return;
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('customer_token');
+    final token = await _storage.read(key: 'customer_token');
 
     int index = _items.indexWhere((i) => i.sku == item.sku);
     if (index >= 0) {
       _items[index] = _items[index].copyWith(qty: newQty);
       notifyListeners();
-      _saveLocalCart();
+      _debounceSaveLocalCart();
     }
 
     if (token != null && item.itemId != 0) {
@@ -176,6 +160,12 @@ class CartProvider with ChangeNotifier {
       final List<dynamic> decoded = jsonDecode(cartString);
       _items = decoded.map((e) => CartItem.fromJson(e)).toList();
     }
+  }
+
+  // [OPTIMIZATION] Debounce implementation
+  void _debounceSaveLocalCart() {
+    if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 500), _saveLocalCart);
   }
 
   Future<void> _saveLocalCart() async {

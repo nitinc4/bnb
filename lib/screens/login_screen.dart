@@ -2,6 +2,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // [SECURITY]
 import '../api/magento_api.dart';
 import 'signup_screen.dart';
 
@@ -18,6 +19,7 @@ class _LoginScreenState extends State<LoginScreen> {
   
   bool _isLoading = false;
   bool _obscureText = true;
+  final _storage = const FlutterSecureStorage(); // [SECURITY]
 
   @override
   void dispose() {
@@ -42,19 +44,18 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final api = MagentoAPI();
     
-    // 1. Generate Token via API
     final token = await api.loginCustomer(email, password);
 
     if (token != null) {
+      // [SECURITY] Save token securely
+      await _storage.write(key: 'customer_token', value: token);
       
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('customer_token', token);
       await prefs.setBool('has_logged_in', true);
       await prefs.setBool('is_guest', false);
 
       if (mounted) {
         setState(() => _isLoading = false);
-        // Navigate directly to Home. No background syncing needed.
         Navigator.pushReplacementNamed(context, '/home');
       }
     } else {
@@ -68,16 +69,13 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // UPDATED: Simplified Guest Handler
   Future<void> _handleGuest() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('is_guest', true);
     await prefs.setBool('has_logged_in', false);
-    await prefs.remove('customer_token'); 
+    await _storage.delete(key: 'customer_token'); // [SECURITY] Clear token if any
 
     if (mounted) {
-      // Just navigate. HomeScreen will handle checks if data needs to be fetched.
-      // We use replacement so the user can't "back" into login easily without logging out.
       Navigator.pushReplacementNamed(context, '/home');
     }
   }

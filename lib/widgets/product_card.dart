@@ -1,3 +1,4 @@
+// lib/widgets/product_card.dart
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
@@ -37,6 +38,8 @@ class ProductCard extends StatelessWidget {
                 imageUrl: imageUrl,
                 fit: BoxFit.cover,
                 width: double.infinity,
+                // [OPTIMIZATION] Downsample image to save memory
+                memCacheWidth: 400, 
                 placeholder: (context, url) => Container(color: Colors.grey.shade100),
                 errorWidget: (context, url, error) => Container(
                   color: Colors.grey.shade200,

@@ -2,16 +2,28 @@
 // ignore_for_file: curly_braces_in_flow_control_structures
 
 import 'dart:convert';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' hide Category; // [FIX] Hide Category to prevent conflict
+// [FIX] Hide Category to prevent conflict
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'; 
 import '../models/magento_models.dart';
 import 'magento_oauth_client.dart'; 
+
+// [OPTIMIZATION] Top-level function for Isolate parsing
+List<Product> _parseProducts(String responseBody) {
+  final data = jsonDecode(responseBody);
+  final items = data["items"] as List? ?? [];
+  return items.map((json) => Product.fromJson(json)).toList();
+}
 
 class MagentoAPI {
   final String baseUrl = dotenv.env['MAGENTO_BASE_URL'] ?? "https://buynutbolts.com";
   late final MagentoOAuthClient _oauthClient;
+  
+  // [SECURITY] Use Secure Storage for sensitive data
+  static const _secureStorage = FlutterSecureStorage();
 
   static List<Category> cachedCategories = [];
   static List<Product> cachedProducts = []; 
@@ -48,20 +60,12 @@ class MagentoAPI {
     );
   }
 
-  // --- NEW: CENTRALIZED CACHE WARM UP ---
   Future<void> warmUpCache() async {
     debugPrint("[MagentoAPI] Warming up cache...");
-    
-    // 1. Fetch Categories (Critical for Menu)
-    // This method already populates cachedCategories
     await fetchCategories();
-    
-    // 2. Fetch Initial Products (Critical for Home Screen)
-    // We force a fetch to ensure fresh data on app start
     try {
       debugPrint("[MagentoAPI] Pre-fetching products...");
       final freshProducts = await fetchProducts(page: 1, pageSize: 20);
-      // fetchProducts automatically updates cachedProducts, but we ensure it here
       if (freshProducts.isNotEmpty) {
         cachedProducts = freshProducts;
       }
@@ -69,39 +73,29 @@ class MagentoAPI {
       debugPrint("[MagentoAPI] Product warm-up failed: $e");
     }
 
-    // 3. User Data (if logged in)
     final token = await _getCustomerToken();
     if (token != null) {
       debugPrint("[MagentoAPI] Preloading User Data...");
-      // We don't await these strictly to allow UI to proceed if needed, 
-      // but in Splash Screen we usually wait.
       await Future.wait([
         fetchCustomerDetails(token),
-        getCartItems(), // This just warms up the HTTP connection basically
+        getCartItems(), 
       ]);
     }
   }
 
-  // --- CACHE UPDATE METHOD ---
   Future<void> updateProductCache(Product updatedProduct) async {
     bool changed = false;
-
-    // 1. Update Global Cache
     final index = cachedProducts.indexWhere((p) => p.sku == updatedProduct.sku);
     if (index != -1) {
       cachedProducts[index] = updatedProduct;
       changed = true;
     }
-
-    // 2. Update Category Caches
     categoryProductsCache.forEach((key, list) {
       final catIndex = list.indexWhere((p) => p.sku == updatedProduct.sku);
       if (catIndex != -1) {
         list[catIndex] = updatedProduct;
       }
     });
-
-    // 3. Persist Global Cache to Storage
     if (changed) {
       try {
         final prefs = await SharedPreferences.getInstance();
@@ -125,14 +119,10 @@ class MagentoAPI {
     bool isFirstPage = page == 1;
     bool isAllProducts = categoryId == null;
 
-    // Return cache immediately if available and we are just loading the main list
-    // NOTE: For 'warmUpCache' calls, we might bypass this check internally, 
-    // but for UI calls, this makes it instant.
     if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort && cachedProducts.isNotEmpty) {
       return cachedProducts;
     }
     
-    // Check Category Cache
     if (categoryId != null && isFirstPage && !hasFilters && isDefaultSort) {
       if (categoryProductsCache.containsKey(categoryId) && categoryProductsCache[categoryId]!.isNotEmpty) {
         return categoryProductsCache[categoryId]!;
@@ -168,11 +158,9 @@ class MagentoAPI {
       final response = await _oauthClient.get("/products", params: queryParams);
       
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final items = data["items"] as List? ?? [];
-        final products = items.map((json) => Product.fromJson(json)).toList();
+        // [OPTIMIZATION] Use compute to offload parsing to background isolate
+        final products = await compute(_parseProducts, response.body);
 
-        // Update Caches
         if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort) {
           cachedProducts = products;
         }
@@ -193,14 +181,11 @@ class MagentoAPI {
         "/products/tier-prices-information", 
         body: jsonEncode({"skus": [sku]})
       );
-      
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
         return data.map((e) => TierPrice.fromJson(e)).toList();
       }
-    } catch (e) {
-      debugPrint("Fetch Tier Prices Error: $e");
-    }
+    } catch (e) { debugPrint("Fetch Tier Prices Error: $e"); }
     return [];
   }
 
@@ -209,27 +194,16 @@ class MagentoAPI {
       final response = await _oauthClient.get("/products/attribute-sets/$attributeSetId/attributes");
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body);
-        return data
-            .map((e) => ProductAttribute.fromJson(e))
-            .where((attr) {
-              final isRelevantType = attr.frontendInput == 'select' || 
-                                     attr.frontendInput == 'multiselect' ||
-                                     attr.frontendInput == 'text' || 
-                                     attr.frontendInput == 'weight';
-              
+        return data.map((e) => ProductAttribute.fromJson(e)).where((attr) {
+              final isRelevantType = ['select', 'multiselect', 'text', 'weight'].contains(attr.frontendInput);
               final labelLower = attr.label.toLowerCase().trim();
               final codeLower = attr.code.toLowerCase().trim();
-              
               final isLabelExcluded = _excludedAttributeLabels.any((ex) => labelLower == ex.toLowerCase().trim());
               final isCodeExcluded = _excludedAttributeCodes.contains(codeLower);
-
               return isRelevantType && !isLabelExcluded && !isCodeExcluded;
-            })
-            .toList();
+            }).toList();
       }
-    } catch (e) {
-      debugPrint("Fetch Attributes Error: $e");
-    }
+    } catch (e) { debugPrint("Fetch Attributes Error: $e"); }
     return [];
   }
 
@@ -481,8 +455,8 @@ class MagentoAPI {
     try { final r = await http.put(Uri.parse("$baseUrl/rest/V1/customers/me/password"), headers: {"Authorization": "Bearer $t", "Content-Type": "application/json"}, body: jsonEncode({"currentPassword": c, "newPassword": n})); return r.statusCode == 200; } catch (e) { return false; }
   }
 
+  // [SECURITY] Updated to use SecureStorage
   Future<String?> _getCustomerToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('customer_token');
+    return await _secureStorage.read(key: 'customer_token');
   }
 }

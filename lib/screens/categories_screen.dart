@@ -1,5 +1,6 @@
 // lib/screens/categories_screen.dart
-import 'package:flutter/material.dart';
+// ignore: undefined_hidden_name
+import 'package:flutter/material.dart' hide Category; // [FIX] Hide Category
 import '../api/magento_api.dart';
 import '../models/magento_models.dart';
 import 'category_detail_screen.dart';

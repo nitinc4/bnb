@@ -1,3 +1,4 @@
+// lib/screens/support_screen.dart
 import 'package:flutter/material.dart';
 // ignore: library_prefixes
 import 'package:socket_io_client/socket_io_client.dart' as IO;
@@ -18,25 +19,23 @@ class SupportScreen extends StatefulWidget {
 class _SupportScreenState extends State<SupportScreen> {
   late IO.Socket socket;
   
-  // Controllers
   final TextEditingController _messageController = TextEditingController();
-  final TextEditingController _nameController = TextEditingController(); // New: For name input
+  final TextEditingController _nameController = TextEditingController(); 
   final ScrollController _scrollController = ScrollController();
   
-  // State variables
-  List<Map<String, dynamic>> _messages = [];
+  // [FIX] Made final
+  final List<Map<String, dynamic>> _messages = [];
+  
   bool _isConnected = false;
   bool _isAssigned = false;
-  bool _isNameSubmitted = false; // New: Tracks if user clicked "Start Chat"
+  bool _isNameSubmitted = false;
   int _queuePosition = 0;
   String? _chatId;
   String? _agentName;
   bool _isAgentTyping = false;
   
-  // User Info
   String _customerId = "";
   
-  // Server URL (Update this for your environment)
   final String _serverUrl = "https://support-sever.onrender.com"; 
 
   @override
@@ -45,11 +44,9 @@ class _SupportScreenState extends State<SupportScreen> {
     _loadUserIdentity();
   }
 
-  // Only loads ID and Name, does NOT connect yet
   Future<void> _loadUserIdentity() async {
     final prefs = await SharedPreferences.getInstance();
     
-    // 1. Try to get Logged In User
     if (MagentoAPI.cachedUser != null) {
       _customerId = MagentoAPI.cachedUser!['id'].toString();
       _nameController.text = "${MagentoAPI.cachedUser!['firstname']} ${MagentoAPI.cachedUser!['lastname']}";
@@ -58,14 +55,12 @@ class _SupportScreenState extends State<SupportScreen> {
       _customerId = data['id'].toString();
       _nameController.text = "${data['firstname']} ${data['lastname']}";
     } else {
-      // 2. Guest User
       String? storedGuestId = prefs.getString('guest_support_id');
       if (storedGuestId == null) {
         storedGuestId = const Uuid().v4();
         await prefs.setString('guest_support_id', storedGuestId);
       }
       _customerId = "guest_$storedGuestId";
-      // Don't pre-fill name for guest, let them type it
     }
     setState(() {}); 
   }
@@ -77,27 +72,25 @@ class _SupportScreenState extends State<SupportScreen> {
       );
       return;
     }
-    FocusScope.of(context).unfocus(); // Hide keyboard
+    FocusScope.of(context).unfocus(); 
     setState(() {
       _isNameSubmitted = true;
-      _messages.clear(); // Clear previous session messages
+      _messages.clear(); 
     });
     _connectSocket();
   }
 
   void _endChat() {
-    // 1. Emit end event if we are in an active chat
     if (_chatId != null && socket.connected) {
       socket.emit('end_chat', {'chatId': _chatId});
     }
 
-    // 2. Disconnect and Reset UI
     socket.disconnect();
     
     setState(() {
       _isConnected = false;
       _isAssigned = false;
-      _isNameSubmitted = false; // Go back to "Enter Name" screen
+      _isNameSubmitted = false;
       _chatId = null;
       _queuePosition = 0;
       _agentName = null;
@@ -118,7 +111,6 @@ class _SupportScreenState extends State<SupportScreen> {
       debugPrint('⚡ Socket Connected');
       if (mounted) setState(() => _isConnected = true);
       
-      // Join using the name from the Text Field
       socket.emit('customer_joined', {
         'customerId': _customerId,
         'customerName': _nameController.text.trim(),
@@ -193,8 +185,6 @@ class _SupportScreenState extends State<SupportScreen> {
           _isAssigned = false;
           _chatId = null;
         });
-        // Optional: Call _endChat() here if you want to kick the user out immediately
-        // _endChat();
       }
     });
   }
@@ -228,7 +218,7 @@ class _SupportScreenState extends State<SupportScreen> {
 
   @override
   void dispose() {
-    if (_isNameSubmitted) socket.disconnect(); // Only disconnect if initialized
+    if (_isNameSubmitted) socket.disconnect(); 
     _messageController.dispose();
     _nameController.dispose();
     _scrollController.dispose();
@@ -246,7 +236,6 @@ class _SupportScreenState extends State<SupportScreen> {
               backgroundColor: Colors.white,
               elevation: 1,
               actions: [
-                // End Chat Button - Only show if connected/chatting
                 if (_isNameSubmitted)
                   IconButton(
                     icon: const Icon(Icons.logout, color: Colors.red),
@@ -261,7 +250,6 @@ class _SupportScreenState extends State<SupportScreen> {
     );
   }
 
-  // --- UI: Screen 1 - Enter Name ---
   Widget _buildWelcomeScreen() {
     return Center(
       child: Padding(
@@ -319,11 +307,9 @@ class _SupportScreenState extends State<SupportScreen> {
     );
   }
 
-  // --- UI: Screen 2 - Active Chat ---
   Widget _buildChatInterface() {
     return Column(
       children: [
-        // Connection / Queue Status Banner
         if (!_isConnected)
           Container(
             width: double.infinity,
@@ -353,7 +339,6 @@ class _SupportScreenState extends State<SupportScreen> {
             ),
           ),
 
-        // Message List
         Expanded(
           child: ListView.builder(
             controller: _scrollController,
@@ -410,7 +395,6 @@ class _SupportScreenState extends State<SupportScreen> {
           ),
         ),
         
-        // Typing Indicator
         if (_isAgentTyping)
           Padding(
             padding: const EdgeInsets.only(left: 20, bottom: 10),
@@ -420,7 +404,6 @@ class _SupportScreenState extends State<SupportScreen> {
             ),
           ),
 
-        // Input Area
         Container(
           padding: const EdgeInsets.all(10),
           decoration: const BoxDecoration(
@@ -431,7 +414,6 @@ class _SupportScreenState extends State<SupportScreen> {
             child: Row(
               children: [
                 if (widget.isEmbedded && _isNameSubmitted)
-                  // Show End Chat button here if embedded in tabs and no app bar
                    IconButton(
                      icon: const Icon(Icons.logout, color: Colors.red),
                      onPressed: _endChat,

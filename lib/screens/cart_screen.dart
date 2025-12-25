@@ -1,11 +1,9 @@
 // lib/screens/cart_screen.dart
-// ignore_for_file: use_build_context_synchronously
-
 import 'package:bnb/screens/login_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'; 
 import '../providers/cart_provider.dart';
 import '../models/magento_models.dart';
 import 'product_detail_screen.dart';
@@ -19,6 +17,7 @@ class CartScreen extends StatefulWidget {
 }
 
 class _CartScreenState extends State<CartScreen> {
+  final _storage = const FlutterSecureStorage();
   
   @override
   void initState() {
@@ -29,15 +28,12 @@ class _CartScreenState extends State<CartScreen> {
   }
 
   Future<void> _handleCheckout(BuildContext context, double total) async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('customer_token');
+    final token = await _storage.read(key: 'customer_token');
 
     if (token != null && token.isNotEmpty) {
-      // FIX: Encode the token to prevent app crashes due to special characters
-      final String encodedToken = Uri.encodeComponent(token);
-      
-      // Use the Bridge URL with the safe encoded token
-      final String bridgeUrl = "https://buynutbolts.com/mobile/auth/login?input_token=$encodedToken";
+      // [FIX] Reverted to URL Parameter because server expects 'input_token' in the URL.
+      // Headers are cleaner, but the server script must support them.
+      final String bridgeUrl = "https://buynutbolts.com/mobile/auth/login?input_token=$token"; 
 
       debugPrint("Launching Checkout Bridge: $bridgeUrl");
 
@@ -47,6 +43,7 @@ class _CartScreenState extends State<CartScreen> {
           builder: (_) => WebsiteWebViewScreen(
             url: bridgeUrl, 
             title: "Checkout",
+            // We don't pass headers here anymore as we are using the URL param
           )
         )
       );
@@ -111,6 +108,7 @@ class _CartScreenState extends State<CartScreen> {
                     price: item.price,
                     imageUrl: item.imageUrl ?? "",
                     description: "", 
+                    
                   );
                   Navigator.push(
                     context, 

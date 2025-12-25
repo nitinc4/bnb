@@ -5,11 +5,13 @@ import 'package:webview_flutter/webview_flutter.dart';
 class WebsiteWebViewScreen extends StatefulWidget {
   final String url;
   final String title;
+  final Map<String, String>? headers; // [FIX] Accept headers
 
   const WebsiteWebViewScreen({
     super.key, 
     this.url = 'https://buynutbolts.com', 
     this.title = 'BuyNutBolts Website',
+    this.headers,
   });
 
   @override
@@ -24,56 +26,43 @@ class _WebsiteWebViewScreenState extends State<WebsiteWebViewScreen> {
   void initState() {
     super.initState();
 
-    // Initialize Controller
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0x00000000))
       ..enableZoom(true)
       ..setNavigationDelegate(
         NavigationDelegate(
-          onProgress: (int progress) {
-            // Optional: Update loading bar
-          },
+          onProgress: (int progress) {},
           onPageStarted: (String url) {
             if (mounted) setState(() => _isLoading = true);
           },
           onPageFinished: (String url) {
             if (mounted) {
-              // HIDDEN HANDSHAKE LOGIC:
-              // If we are still on the bridge URL (the login script), keep loading true.
-              // Only remove the loader when we have been redirected (e.g. to /checkout/ or /customer/account/)
               if (url.contains('/mobile/auth/login')) {
-                // Handshake in progress, keep spinner visible
                 return;
               }
               setState(() => _isLoading = false);
             }
           },
           onNavigationRequest: (NavigationRequest request) {
-            // Allow bridge logic
             if (request.url.contains('/mobile/auth/login')) {
               return NavigationDecision.navigate;
             }
-
-            // Only website domain and RFQ subdomain allowed
             if (request.url.startsWith('https://buynutbolts.com') || 
                 request.url.startsWith('https://www.buynutbolts.com') ||
                 request.url.startsWith('https://rfq.buynutbolts.com')) { 
               return NavigationDecision.navigate;
             }
-            
-            // Allow payment gateways
             if (request.url.contains('razorpay.com') || 
                 request.url.contains('paypal.com')) {
                return NavigationDecision.navigate;
             }
-
-            debugPrint('Blocking navigation to: ${request.url}');
             return NavigationDecision.prevent;
           },
         ),
       )
-      ..loadRequest(Uri.parse(widget.url));
+      // [FIX] Load request with headers
+      ..loadRequest(Uri.parse(widget.url), headers: widget.headers ?? {});
   }
 
   @override
@@ -102,8 +91,6 @@ class _WebsiteWebViewScreenState extends State<WebsiteWebViewScreen> {
       body: Stack(
         children: [
           WebViewWidget(controller: _controller),
-          
-          // Enhanced Loading State
           if (_isLoading)
             Container(
               color: Colors.white,

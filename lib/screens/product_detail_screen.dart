@@ -19,7 +19,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   late Product _currentProduct;
   bool _isLoadingDetails = false;
   
-  // Storage for More Information (Specs)
   Map<String, String> _specs = {};
   bool _isLoadingSpecs = false;
 
@@ -34,10 +33,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     setState(() => _isLoadingDetails = true);
     final api = MagentoAPI();
     
-    // 1. Fetch Basic Product Details (Description, etc.)
     final fullProduct = await api.fetchProductBySku(_currentProduct.sku);
-    
-    // 2. Fetch Tier Prices (Buy more save more)
     final tierPrices = await api.fetchTierPrices(_currentProduct.sku);
 
     if (mounted) {
@@ -63,7 +59,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       
       api.updateProductCache(_currentProduct);
 
-      // 3. Fetch Specifications
       if (_currentProduct.attributeSetId > 0) {
         _fetchSpecifications(api, _currentProduct.attributeSetId);
       }
@@ -95,7 +90,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         
         newSpecs[attrDef.label] = displayValue;
       } catch (e) {
-        // Attribute definition not found
       }
     });
 
@@ -158,7 +152,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. Image
               SizedBox(
                 height: 300, width: double.infinity,
                 child: _currentProduct.imageUrl.isNotEmpty
@@ -176,7 +169,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // 2. Title & SKU
                     Text(_currentProduct.name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     Text("SKU: ${_currentProduct.sku}", style: TextStyle(color: Colors.grey.shade600)),
@@ -185,7 +177,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     const Divider(),
                     const SizedBox(height: 16),
 
-                    // 3. DESCRIPTION (Moved UP)
                     const Text("Description", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 8),
                     if (_isLoadingDetails) 
@@ -197,7 +188,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     const Divider(),
                     const SizedBox(height: 16),
 
-                    // 4. TIER PRICING TABLE (Moved after Description)
                     if (_currentProduct.tierPrices.isNotEmpty) ...[
                       const Text("Buy More, Save More", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF00599c))),
                       const SizedBox(height: 8),
@@ -220,6 +210,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                               ),
                             ),
                             const Divider(height: 1),
+                            // [FIX] Removed .toList() in spread
                             ..._currentProduct.tierPrices.map((tier) {
                               return Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
@@ -231,14 +222,13 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                   ],
                                 ),
                               );
-                            }).toList(),
+                            }),
                           ],
                         ),
                       ),
                       const SizedBox(height: 24),
                     ],
 
-                    // 5. RFQ BUTTON (Placed after Tiers)
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
@@ -257,7 +247,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     const Divider(),
                     const SizedBox(height: 16),
 
-                    // 6. MORE INFORMATION (Moved to Bottom)
                     const Text("More Information", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 8),
                     if (_isLoadingSpecs)

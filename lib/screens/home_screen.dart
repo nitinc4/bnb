@@ -1,7 +1,7 @@
 // lib/screens/home_screen.dart
 // ignore_for_file: deprecated_member_use
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Category; // [FIX] Hide Category
 import 'package:provider/provider.dart'; 
 import '../widgets/product_card.dart';
 import '../widgets/app_drawer.dart'; 
@@ -34,14 +34,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // 1. Check if cache is actually empty (e.g. cold start without splash).
-    // If empty, fetch immediately.
     if (MagentoAPI.cachedCategories.isEmpty) {
       _categoriesFuture = MagentoAPI().fetchCategories();
     }
 
-    // 2. Perform background background refresh to keep data fresh
-    // This runs after the build frame so it doesn't block UI
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _performBackgroundFetch();
     });
@@ -49,18 +45,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _performBackgroundFetch() async {
     debugPrint("[HomeScreen] Starting background data refresh...");
-    // Refresh Cart
     Provider.of<CartProvider>(context, listen: false).fetchCart();
-    // Note: We don't forcefully refresh categories/products here to avoid 
-    // replacing the UI content while the user is looking at it, 
-    // but you could call MagentoAPI().warmUpCache() here if you wanted live updates.
   }
 
   Future<void> _onRefresh() async {
-    // 1. Clear Cache
     await MagentoAPI().clearCache();
     
-    // 2. Start fetching categories
     final categoriesTask = MagentoAPI().fetchCategories();
     
     setState(() {
@@ -68,10 +58,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      // 3. Wait for categories to arrive
       final categories = await categoriesTask;
-
-      // 4. Pre-fetch products for the top 5 categories 
       final List<Category> allCategories = [];
       for (var cat in categories) {
         allCategories.add(cat);
@@ -325,7 +312,6 @@ class _CategoryProductRowState extends State<CategoryProductRow> {
   }
 
   void _load() {
-    // This uses cached data if available (instant), otherwise fetches network
     _productsFuture = MagentoAPI().fetchProducts(
       categoryId: widget.category.id,
       pageSize: 10, 
@@ -337,13 +323,9 @@ class _CategoryProductRowState extends State<CategoryProductRow> {
     return FutureBuilder<List<Product>>(
       future: _productsFuture,
       builder: (context, snapshot) {
-        
-        // Use SizedBox.shrink for loading to prevent layout shifts/spinners jumping
         if (snapshot.connectionState == ConnectionState.waiting) {
            return const SizedBox.shrink();
         }
-
-        // Hide if error or no products
         if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
           return const SizedBox.shrink();
         }
@@ -353,7 +335,6 @@ class _CategoryProductRowState extends State<CategoryProductRow> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Section Header
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               child: Row(
@@ -373,7 +354,6 @@ class _CategoryProductRowState extends State<CategoryProductRow> {
               ),
             ),
             
-            // Horizontal Product List
             SizedBox(
               height: 260, 
               child: ListView.builder(

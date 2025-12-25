@@ -1,5 +1,5 @@
 // lib/screens/category_detail_screen.dart
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Category; // [FIX] Hide Category
 import '../models/magento_models.dart';
 import '../api/magento_api.dart';
 import '../widgets/product_card.dart';
@@ -69,7 +69,6 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
         _isLoadingProducts = false;
       });
 
-      // Link specific attribute set dynamically & FILTER them based on actual products
       if (_filterAttributes.isEmpty && products.isNotEmpty) {
         final attributeSetId = products.first.attributeSetId;
         if (attributeSetId > 0) {
@@ -79,15 +78,10 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
     }
   }
 
-  // --- CHANGED: Fetch AND Filter Attributes ---
   Future<void> _fetchAndFilterAttributes(int attributeSetId, List<Product> loadedProducts) async {
-    // 1. Fetch ALL attributes for this set (which might be too many)
     final allAttrs = await _api.fetchAttributesBySet(attributeSetId);
     
-    // 2. Filter: Only keep attributes that are actually used by the products in this category
-    // This prevents "sibling" attributes (like 'shoulder_length' in 'socket_head' category) from showing up
     final relevantAttrs = allAttrs.where((attr) {
-      // Check if ANY loaded product has a value for this attribute
       return loadedProducts.any((product) {
         return product.customAttributes.containsKey(attr.code) && 
                product.customAttributes[attr.code] != null;

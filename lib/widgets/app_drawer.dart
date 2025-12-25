@@ -2,6 +2,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // [SECURITY]
 import '../api/magento_api.dart';
 import '../models/magento_models.dart';
 import '../screens/category_detail_screen.dart';
@@ -18,6 +19,7 @@ class AppDrawer extends StatefulWidget {
 class _AppDrawerState extends State<AppDrawer> {
   String _accountName = "Welcome Guest";
   String _accountEmail = "Login to track orders";
+  final _storage = const FlutterSecureStorage(); // [SECURITY]
   
   @override
   void initState() {
@@ -25,37 +27,30 @@ class _AppDrawerState extends State<AppDrawer> {
     _loadUserInstant();
   }
 
-  // --- FAST LOAD STRATEGY ---
   Future<void> _loadUserInstant() async {
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('customer_token');
+    // [SECURITY] Read token securely
+    final token = await _storage.read(key: 'customer_token');
 
     if (token != null) {
-      // Try Memory Cache (Fastest - Immediate)
       if (MagentoAPI.cachedUser != null) {
         _updateUi(MagentoAPI.cachedUser!);
       } 
-      // Try Disk Cache (Fast - persisted across restarts)
       else if (prefs.containsKey('cached_user_data')) {
         try {
           final data = jsonDecode(prefs.getString('cached_user_data')!);
           _updateUi(data);
-          MagentoAPI.cachedUser = data; // Sync memory
-        } catch (e) {
-          // ignore error
-        }
+          MagentoAPI.cachedUser = data; 
+        } catch (e) { }
       }
 
-      // 3. Background Refresh 
       try {
         final api = MagentoAPI();
         final user = await api.fetchCustomerDetails(token);
         if (user != null && mounted) {
           _updateUi(user);
         }
-      } catch (e) {
-        // ignore network errors, keep showing cached data
-      }
+      } catch (e) { }
     }
   }
 
@@ -96,14 +91,11 @@ class _AppDrawerState extends State<AppDrawer> {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                // Standard Pages
                 ListTile(
                   leading: const Icon(Icons.home_outlined),
                   title: const Text('Home'),
                   onTap: () => Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false),
                 ),
-                
-                // All Products
                 ListTile(
                   leading: const Icon(Icons.grid_view),
                   title: const Text('All Products'),
@@ -137,7 +129,6 @@ class _AppDrawerState extends State<AppDrawer> {
                   title: const Text('Support Chat'),
                   onTap: () {
                     Navigator.pop(context);
-                    // Navigate to the standalone support route
                     Navigator.pushNamed(context, '/support');
                   },
                 ),
@@ -163,7 +154,6 @@ class _AppDrawerState extends State<AppDrawer> {
                   child: Text("CATEGORIES", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
                 ),
                 
-                // Recursive Categories List
                 if (categories.isEmpty)
                   const Padding(padding: EdgeInsets.all(16), child: Text("No categories loaded"))
                 else

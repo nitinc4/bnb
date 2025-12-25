@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart'; 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'; 
 import '../api/magento_api.dart';
 import '../models/magento_models.dart';
 import '../providers/cart_provider.dart'; 
@@ -26,6 +27,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoading = true;
   Map<String, dynamic>? _userData;
   List<Order> _recentOrders = [];
+  final _storage = const FlutterSecureStorage(); 
 
   @override
   void initState() {
@@ -36,22 +38,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadAllData() async {
     setState(() => _isLoading = true);
     
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('customer_token');
+    // [FIX] Removed unused 'prefs' declaration here
+    final token = await _storage.read(key: 'customer_token');
 
     if (token != null && token.isNotEmpty) {
       final api = MagentoAPI();
       
-      // Fetch User Data
       final userData = await api.fetchCustomerDetails(token);
       
-      // CHECK FOR EXPIRY: If data is null, token is dead.
       if (userData == null) {
-        _logout(); // Auto-logout if session expired
+        _logout(); 
         return; 
       }
 
-      // Fetch Orders if valid
       List<Order> orders = [];
       if (userData['email'] != null) {
         orders = await api.fetchOrders(userData['email']);
@@ -72,11 +71,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _logout() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('customer_token');
+    await _storage.delete(key: 'customer_token');
     await prefs.setBool('has_logged_in', false);
     await prefs.setBool('is_guest', false);
     
-    // Clear Global API Cache too
     await MagentoAPI().clearCache();
     
     if (mounted) Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
@@ -184,7 +182,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // --- WIDGET HELPERS ---
   Map<String, dynamic>? _getDefaultAddress({required bool isBilling}) {
     final List addresses = _userData?['addresses'] ?? [];
     if (addresses.isEmpty) return null;
@@ -244,7 +241,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: DataTable(
-          headingRowColor: WidgetStateProperty.all(Colors.grey.shade50), // Fixed Deprecated
+          headingRowColor: WidgetStateProperty.all(Colors.grey.shade50), 
           columns: const [
             DataColumn(label: Text("Order #")), DataColumn(label: Text("Date")),
             DataColumn(label: Text("Total")), DataColumn(label: Text("Status")), DataColumn(label: Text("Action")),
