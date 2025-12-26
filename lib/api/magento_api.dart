@@ -25,12 +25,10 @@ class MagentoAPI {
 
   static List<Category> cachedCategories = [];
   static List<Product> cachedProducts = []; 
-  // [IMPORTANT] This is used by HomeScreen to show data instantly
   static Map<int, List<Product>> categoryProductsCache = {}; 
   static Map<String, Category> _detailsCache = {};
   static Map<String, dynamic>? cachedUser; 
 
-  // ... (Excluded Attributes Lists - Omitted for brevity, kept same as before) ...
   static const List<String> _excludedAttributeCodes = [
     "ship_bundle_items", "page_layout", "gift_message_available", "tax_class_id",
     "options_container", "custom_layout_update", "custom_design",
@@ -59,6 +57,62 @@ class MagentoAPI {
       tokenSecret: dotenv.env['ACCESS_TOKEN_SECRET'] ?? '',
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // NEW AI CHATBOT METHODS
+  // ---------------------------------------------------------------------------
+
+  /// Calls Bot/HardwareChat/Controller/Ai/Orderstatus.php
+  Future<Map<String, dynamic>> checkOrderStatus(String orderId, String email) async {
+    try {
+      final uri = Uri.parse("$baseUrl/hardwarechat/ai/orderstatus").replace(queryParameters: {
+        'order_id': orderId,
+        'email': email,
+      });
+
+      final response = await http.get(uri);
+      
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      debugPrint("Order Status Error: $e");
+    }
+    return {'success': false, 'message': 'Connection failed.'};
+  }
+
+  /// Calls Bot/HardwareChat/Controller/Ai/Rfq.php
+  Future<Map<String, dynamic>> submitRfq({
+    required String product,
+    required String quantity,
+    required String name,
+    required String email,
+    required String mobile,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse("$baseUrl/hardwarechat/ai/rfq"),
+        body: {
+          'product': product,
+          'quantity': quantity,
+          'name': name,
+          'email': email,
+          'mobile': mobile,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      debugPrint("RFQ Error: $e");
+    }
+    return {'success': false, 'message': 'Connection failed.'};
+  }
+
+  // ---------------------------------------------------------------------------
+  // EXISTING METHODS
+  // ---------------------------------------------------------------------------
 
   Future<void> warmUpHomeData() async {
     debugPrint("[MagentoAPI] Warming up Home Data...");

@@ -1,12 +1,19 @@
-// lib/screens/support_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
 // ignore: library_prefixes
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:convert';
+// Hide 'Content' from flutter_html to avoid conflict with Gemini's Content class
+import 'package:flutter_html/flutter_html.dart' hide Content;
+import 'package:url_launcher/url_launcher.dart';
+
 import '../api/magento_api.dart';
+// Ensure this model file exists and has Product/Order classes
+import '../models/magento_models.dart'; 
 
 class SupportScreen extends StatefulWidget {
   final bool isEmbedded;
@@ -17,15 +24,25 @@ class SupportScreen extends StatefulWidget {
 }
 
 class _SupportScreenState extends State<SupportScreen> {
-  late IO.Socket socket;
-  
+  // --- UI STATE ---
   final TextEditingController _messageController = TextEditingController();
-  final TextEditingController _nameController = TextEditingController(); 
+  final TextEditingController _nameController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   
-  // [FIX] Made final
+  // Stores both AI and Live Chat messages
   final List<Map<String, dynamic>> _messages = [];
   
+  // Toggle: FALSE = AI Bot (Default), TRUE = Human Agent
+  bool _isLiveSupport = false; 
+
+  // --- AI STATE ---
+  late GenerativeModel _aiModel;
+  late ChatSession _chatSession;
+  bool _aiInitialized = false;
+  bool _isLoadingAi = false;
+
+  // --- LIVE SUPPORT STATE (Socket.IO) ---
+  late IO.Socket socket;
   bool _isConnected = false;
   bool _isAssigned = false;
   bool _isNameSubmitted = false;
@@ -35,25 +52,29 @@ class _SupportScreenState extends State<SupportScreen> {
   bool _isAgentTyping = false;
   
   String _customerId = "";
-  
-  final String _serverUrl = "https://support-sever.onrender.com"; 
+  final String _serverUrl = "https://support-sever.onrender.com";
 
   @override
   void initState() {
     super.initState();
     _loadUserIdentity();
+    _initGemini();
   }
 
   Future<void> _loadUserIdentity() async {
     final prefs = await SharedPreferences.getInstance();
-    
     if (MagentoAPI.cachedUser != null) {
       _customerId = MagentoAPI.cachedUser!['id'].toString();
       _nameController.text = "${MagentoAPI.cachedUser!['firstname']} ${MagentoAPI.cachedUser!['lastname']}";
+      // If user is logged in, we can auto-submit name for live chat
+      if (_nameController.text.isNotEmpty) {
+        _isNameSubmitted = true;
+      }
     } else if (prefs.containsKey('cached_user_data')) {
       final data = jsonDecode(prefs.getString('cached_user_data')!);
       _customerId = data['id'].toString();
       _nameController.text = "${data['firstname']} ${data['lastname']}";
+      _isNameSubmitted = true;
     } else {
       String? storedGuestId = prefs.getString('guest_support_id');
       if (storedGuestId == null) {
@@ -62,7 +83,207 @@ class _SupportScreenState extends State<SupportScreen> {
       }
       _customerId = "guest_$storedGuestId";
     }
-    setState(() {}); 
+    setState(() {});
+  }
+
+  // ---------------------------------------------------------------------------
+  // 1. AI & GEMINI LOGIC
+  // ---------------------------------------------------------------------------
+
+  Future<void> _initGemini() async {
+    final apiKey = dotenv.env['GEMINI_API_KEY'];
+    if (apiKey == null) {
+      _addSystemMessage("System Warning: GEMINI_API_KEY missing in .env");
+      return;
+    }
+
+    // 1. Fetch Categories for Context (Optional, helps AI know what you sell)
+    String categoryContext = "";
+    try {
+      // Assuming fetchCategories returns a list of objects with a 'name' property
+      final cats = await MagentoAPI().fetchCategories();
+      final catNames = cats.map((c) => c.name).take(30).join(", ");
+      categoryContext = "Available Categories: $catNames";
+    } catch (_) {
+      categoryContext = "Hardware and Tools Store";
+    }
+
+    // 2. Define System Instruction with "Tools"
+    // We teach the AI to output specific commands like SEARCH:, ORDER:, RFQ:
+    final systemPrompt = """
+You are the AI Assistant for 'Buy Nut Bolts' ($categoryContext).
+Goal: Help users find products, check orders, or submit Requests for Quote (RFQ).
+
+CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
+
+1. SEARCH PRODUCTS:
+   If user asks for a product (e.g., "I need a hammer"), output:
+   SEARCH: <query>
+
+2. CHECK ORDER STATUS:
+   If user asks about an order (e.g., "Status of order 10001?"), ask for email if missing.
+   Once you have ID and Email, output:
+   ORDER: <order_id> | <email>
+
+3. SUBMIT RFQ (Bulk Orders):
+   If user wants a quote, collect: Product Name, Quantity, Name, Email, Mobile.
+   Once collected, output:
+   RFQ: <product> | <qty> | <name> | <email> | <mobile>
+
+4. GENERAL CHAT:
+   For anything else, reply normally and helpfully. Keep it brief.
+   If you can't help, suggest tapping the headset icon for a live agent.
+""";
+
+    // Use gemini-1.5-flash for stability and speed
+    _aiModel = GenerativeModel(
+      model: 'gemini-1.5-flash', 
+      apiKey: apiKey,
+    );
+    
+    _chatSession = _aiModel.startChat(history: [
+      Content.multi([TextPart(systemPrompt)])
+    ]);
+    
+    if (mounted) {
+      setState(() => _aiInitialized = true);
+      // Initial greeting from AI
+      _messages.add({
+        'type': 'system',
+        'content': '👋 Hi! I can help you find products, track orders, or take RFQs. Tap the headset 🎧 to talk to a human.',
+        'time': DateTime.now()
+      });
+    }
+  }
+
+  Future<void> _handleAiMessage(String text) async {
+    if (!_aiInitialized) return;
+    setState(() => _isLoadingAi = true);
+
+    try {
+      // Send to Gemini
+      final response = await _chatSession.sendMessage(Content.text(text));
+      final reply = response.text?.trim() ?? "I didn't catch that.";
+
+      // --- PARSE COMMANDS ---
+
+      if (reply.startsWith("SEARCH:")) {
+        final query = reply.substring(7).trim();
+        await _performProductSearch(query);
+      } 
+      else if (reply.startsWith("ORDER:")) {
+        final parts = reply.substring(6).split('|');
+        if (parts.length == 2) {
+          await _performOrderCheck(parts[0].trim(), parts[1].trim());
+        } else {
+          _addBotMessage("I need both Order ID and Email to check status.");
+        }
+      }
+      else if (reply.startsWith("RFQ:")) {
+        final parts = reply.substring(4).split('|');
+        if (parts.length >= 5) {
+          await _performRfqSubmit(parts[0], parts[1], parts[2], parts[3], parts[4]);
+        } else {
+          _addBotMessage("I missed some details. Please provide Product, Qty, Name, Email, and Mobile.");
+        }
+      } 
+      else {
+        // Normal Conversation
+        _addBotMessage(reply);
+      }
+
+    } catch (e) {
+      debugPrint("AI Error: $e");
+      _addSystemMessage("AI is having trouble. Please switch to Live Support.");
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingAi = false);
+        _scrollToBottom();
+      }
+    }
+  }
+
+  // --- AI TOOL EXECUTIONS ---
+
+  Future<void> _performProductSearch(String query) async {
+    _addBotMessage("🔍 Searching for '$query'...");
+    
+    // Call your MagentoAPI
+    final products = await MagentoAPI().searchProducts(query);
+    
+    if (products.isEmpty) {
+      _addBotMessage("I couldn't find any matching products.");
+      return;
+    }
+
+    // Build HTML Card for products
+    // Note: product:sku is a custom scheme we handle in _handleLinkTap
+    String html = "<b>Found these matches:</b><br>";
+    for (var p in products.take(3)) {
+       html += """
+       <div style='margin-top:8px; border-bottom:1px solid #eee; padding-bottom:4px;'>
+         <a href='product:${p.sku}'><b>${p.name}</b></a><br>
+         <span style='color:green'>${p.price}</span>
+       </div>
+       """;
+    }
+    _addBotMessage(html);
+  }
+
+  Future<void> _performOrderCheck(String orderId, String email) async {
+    _addBotMessage("Checking order #$orderId...");
+    final result = await MagentoAPI().checkOrderStatus(orderId, email);
+    
+    if (result['success'] == true) {
+      _addBotMessage("✅ <b>Order Found!</b><br>Status: <b>${result['status']}</b><br>Date: ${result['eta']}");
+    } else {
+      _addBotMessage("❌ ${result['message']}");
+    }
+  }
+
+  Future<void> _performRfqSubmit(String prod, String qty, String name, String email, String mobile) async {
+    _addBotMessage("Submitting your request...");
+    final result = await MagentoAPI().submitRfq(
+      product: prod.trim(), 
+      quantity: qty.trim(), 
+      name: name.trim(), 
+      email: email.trim(), 
+      mobile: mobile.trim()
+    );
+
+    if (result['success'] == true) {
+      _addBotMessage("✅ <b>RFQ Submitted!</b><br>${result['message']}");
+    } else {
+      _addBotMessage("❌ Failed: ${result['message']}");
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 2. LIVE SUPPORT LOGIC (Socket.IO)
+  // ---------------------------------------------------------------------------
+
+  void _toggleLiveSupport() {
+    if (_isLiveSupport) {
+      // Switching BACK to AI
+      _endChat(); // Disconnect socket
+      setState(() {
+        _isLiveSupport = false;
+        _messages.clear();
+        _addSystemMessage("Switched back to AI Assistant.");
+      });
+      // Re-init AI context if needed
+      if (!_aiInitialized) _initGemini();
+    } else {
+      // Switching TO Live Support
+      setState(() {
+        _isLiveSupport = true;
+        _messages.clear();
+      });
+      // If we already have name, auto-connect
+      if (_nameController.text.isNotEmpty) {
+        _startChat();
+      }
+    }
   }
 
   void _startChat() {
@@ -75,22 +296,24 @@ class _SupportScreenState extends State<SupportScreen> {
     FocusScope.of(context).unfocus(); 
     setState(() {
       _isNameSubmitted = true;
-      _messages.clear(); 
     });
+    // If switching modes, clear messages to avoid confusion
+    if (_messages.isEmpty) {
+      setState(() => _messages.clear());
+    }
     _connectSocket();
   }
 
   void _endChat() {
-    if (_chatId != null && socket.connected) {
+    if (_chatId != null && _isConnected) {
       socket.emit('end_chat', {'chatId': _chatId});
     }
-
-    socket.disconnect();
+    if (_isConnected) socket.disconnect();
     
     setState(() {
       _isConnected = false;
       _isAssigned = false;
-      _isNameSubmitted = false;
+      _isNameSubmitted = false; // Reset to allow re-entry
       _chatId = null;
       _queuePosition = 0;
       _agentName = null;
@@ -108,9 +331,7 @@ class _SupportScreenState extends State<SupportScreen> {
     socket.connect();
 
     socket.onConnect((_) {
-      debugPrint('⚡ Socket Connected');
       if (mounted) setState(() => _isConnected = true);
-      
       socket.emit('customer_joined', {
         'customerId': _customerId,
         'customerName': _nameController.text.trim(),
@@ -118,7 +339,6 @@ class _SupportScreenState extends State<SupportScreen> {
     });
 
     socket.onDisconnect((_) {
-      debugPrint('Disconnected');
       if (mounted) setState(() => _isConnected = false);
     });
 
@@ -149,28 +369,24 @@ class _SupportScreenState extends State<SupportScreen> {
 
     socket.on('new_message', (data) {
       final msgData = data['message'];
-      if (msgData != null) {
-        if (mounted) {
-          setState(() {
-            _messages.add({
-              'type': 'chat',
-              'content': msgData['content'],
-              'isUser': msgData['sender_type'] == 'customer',
-              'time': DateTime.parse(msgData['created_at'] ?? DateTime.now().toIso8601String()),
-            });
-            _isAgentTyping = false;
+      if (msgData != null && mounted) {
+        setState(() {
+          _messages.add({
+            'type': 'chat',
+            'content': msgData['content'],
+            'isUser': msgData['sender_type'] == 'customer',
+            'time': DateTime.parse(msgData['created_at'] ?? DateTime.now().toIso8601String()),
           });
-          _scrollToBottom();
-        }
+          _isAgentTyping = false;
+        });
+        _scrollToBottom();
       }
     });
 
     socket.on('typing_indicator', (data) {
-      if (data['senderType'] == 'agent') {
-        if (mounted) {
-          setState(() => _isAgentTyping = data['isTyping'] ?? false);
-          if (_isAgentTyping) _scrollToBottom();
-        }
+      if (data['senderType'] == 'agent' && mounted) {
+        setState(() => _isAgentTyping = data['isTyping'] ?? false);
+        if (_isAgentTyping) _scrollToBottom();
       }
     });
 
@@ -178,9 +394,9 @@ class _SupportScreenState extends State<SupportScreen> {
       if (mounted) {
         setState(() {
           _messages.add({
-            'type': 'system',
-            'content': 'The chat has been ended by the agent.',
-            'time': DateTime.now()
+             'type': 'system',
+             'content': 'The chat has been ended by the agent.',
+             'time': DateTime.now()
           });
           _isAssigned = false;
           _chatId = null;
@@ -189,10 +405,8 @@ class _SupportScreenState extends State<SupportScreen> {
     });
   }
 
-  void _sendMessage() {
-    if (_messageController.text.trim().isEmpty || !_isAssigned || _chatId == null) return;
-
-    final text = _messageController.text;
+  void _sendLiveMessage(String text) {
+    if (!_isAssigned || _chatId == null) return;
     
     socket.emit('customer_message', {
       'chatId': _chatId,
@@ -200,8 +414,57 @@ class _SupportScreenState extends State<SupportScreen> {
       'customerName': _nameController.text.trim(),
       'message': text,
     });
+  }
 
+  // ---------------------------------------------------------------------------
+  // 3. UI HELPERS
+  // ---------------------------------------------------------------------------
+
+  void _sendMessage() {
+    final text = _messageController.text.trim();
+    if (text.isEmpty) return;
     _messageController.clear();
+
+    // 1. Add User Message
+    setState(() {
+      _messages.add({
+        'type': 'chat',
+        'content': text,
+        'isUser': true, // User
+        'time': DateTime.now()
+      });
+    });
+    _scrollToBottom();
+
+    // 2. Route Message
+    if (_isLiveSupport) {
+      _sendLiveMessage(text);
+    } else {
+      _handleAiMessage(text);
+    }
+  }
+
+  void _addBotMessage(String content) {
+    setState(() {
+      _messages.add({
+        'type': 'chat',
+        'content': content,
+        'isUser': false, // Bot
+        'time': DateTime.now()
+      });
+    });
+    _scrollToBottom();
+  }
+
+  void _addSystemMessage(String content) {
+    setState(() {
+      _messages.add({
+        'type': 'system',
+        'content': content,
+        'time': DateTime.now()
+      });
+    });
+    _scrollToBottom();
   }
 
   void _scrollToBottom() {
@@ -218,7 +481,7 @@ class _SupportScreenState extends State<SupportScreen> {
 
   @override
   void dispose() {
-    if (_isNameSubmitted) socket.disconnect(); 
+    if (_isLiveSupport && _isConnected) socket.disconnect();
     _messageController.dispose();
     _nameController.dispose();
     _scrollController.dispose();
@@ -230,24 +493,38 @@ class _SupportScreenState extends State<SupportScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: widget.isEmbedded 
-          ? null 
-          : AppBar(
-              title: const Text("Support Chat"),
-              backgroundColor: Colors.white,
-              elevation: 1,
-              actions: [
-                if (_isNameSubmitted)
-                  IconButton(
-                    icon: const Icon(Icons.logout, color: Colors.red),
-                    tooltip: "End Chat",
-                    onPressed: _endChat,
-                  )
-              ],
-            ),
-      body: !_isNameSubmitted 
-        ? _buildWelcomeScreen() 
-        : _buildChatInterface(),
+        ? null 
+        : AppBar(
+            title: Text(_isLiveSupport ? "Live Support" : "AI Assistant"),
+            backgroundColor: Colors.white,
+            elevation: 1,
+            actions: [
+              // Switch Button
+              IconButton(
+                icon: Icon(_isLiveSupport ? Icons.smart_toy : Icons.headset_mic, color: const Color(0xFF00599c)),
+                tooltip: _isLiveSupport ? "Switch to AI" : "Talk to Human",
+                onPressed: _toggleLiveSupport,
+              ),
+              // End Chat (Live Only)
+              if (_isLiveSupport && _isNameSubmitted)
+                IconButton(
+                  icon: const Icon(Icons.logout, color: Colors.red),
+                  tooltip: "End Chat",
+                  onPressed: _endChat,
+                )
+            ],
+          ),
+      body: _buildBody(),
     );
+  }
+
+  Widget _buildBody() {
+    // If Live Support is active BUT name is not submitted, show name screen
+    if (_isLiveSupport && !_isNameSubmitted) {
+      return _buildWelcomeScreen();
+    }
+    // Otherwise show chat interface (AI or Live)
+    return _buildChatInterface();
   }
 
   Widget _buildWelcomeScreen() {
@@ -268,12 +545,12 @@ class _SupportScreenState extends State<SupportScreen> {
             ),
             const SizedBox(height: 30),
             const Text(
-              "How can we help you?",
+              "Connect to Live Support",
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF00599c)),
             ),
             const SizedBox(height: 10),
             const Text(
-              "Please enter your name to start chatting with an agent.",
+              "Please enter your name to join the queue.",
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey),
             ),
@@ -283,24 +560,26 @@ class _SupportScreenState extends State<SupportScreen> {
               decoration: InputDecoration(
                 labelText: "Your Name",
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                filled: true,
-                fillColor: Colors.white,
+                filled: true, fillColor: Colors.white,
                 prefixIcon: const Icon(Icons.person_outline),
               ),
             ),
             const SizedBox(height: 20),
             SizedBox(
-              width: double.infinity,
-              height: 50,
+              width: double.infinity, height: 50,
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF00599c),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 onPressed: _startChat,
-                child: const Text("Start Chat", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                child: const Text("Start Chat", style: TextStyle(color: Colors.white, fontSize: 16)),
               ),
             ),
+            TextButton(
+              onPressed: _toggleLiveSupport,
+              child: const Text("Back to AI Assistant"),
+            )
           ],
         ),
       ),
@@ -310,35 +589,26 @@ class _SupportScreenState extends State<SupportScreen> {
   Widget _buildChatInterface() {
     return Column(
       children: [
-        if (!_isConnected)
-          Container(
-            width: double.infinity,
-            color: Colors.red[100],
-            padding: const EdgeInsets.all(8),
-            child: const Text("Connecting to server...", textAlign: TextAlign.center, style: TextStyle(color: Colors.red)),
-          )
-        else if (!_isAssigned)
-          Container(
-            width: double.infinity,
-            color: Colors.orange[100],
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                const Icon(Icons.hourglass_empty, color: Colors.deepOrange, size: 30),
-                const SizedBox(height: 8),
-                const Text(
-                  "Waiting for an agent...", 
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange, fontSize: 16)
-                ),
-                const SizedBox(height: 4),
-                if (_queuePosition > 0)
-                   Text("You are number $_queuePosition in the queue.", style: const TextStyle(color: Colors.deepOrange))
-                else
-                   const Text("All agents are currently busy.", style: TextStyle(color: Colors.deepOrange)),
-              ],
+        // Live Support Status Banners
+        if (_isLiveSupport) ...[
+          if (!_isConnected)
+            Container(
+              width: double.infinity, color: Colors.red[100], padding: const EdgeInsets.all(8),
+              child: const Text("Connecting to server...", textAlign: TextAlign.center, style: TextStyle(color: Colors.red)),
+            )
+          else if (!_isAssigned)
+            Container(
+              width: double.infinity, color: Colors.orange[100], padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  const Text("Waiting for an agent...", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+                  if (_queuePosition > 0) Text("Position in queue: $_queuePosition", style: const TextStyle(color: Colors.deepOrange)),
+                ],
+              ),
             ),
-          ),
+        ],
 
+        // Message List
         Expanded(
           child: ListView.builder(
             controller: _scrollController,
@@ -346,7 +616,6 @@ class _SupportScreenState extends State<SupportScreen> {
             itemCount: _messages.length,
             itemBuilder: (context, index) {
               final msg = _messages[index];
-              
               if (msg['type'] == 'system') {
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 10),
@@ -356,32 +625,34 @@ class _SupportScreenState extends State<SupportScreen> {
                 );
               }
 
-              final isUser = msg['isUser'];
+              final isUser = msg['isUser'] == true;
               return Align(
                 alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
                 child: Container(
                   margin: const EdgeInsets.symmetric(vertical: 4),
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+                  constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
                   decoration: BoxDecoration(
                     color: isUser ? const Color(0xFF00599c) : Colors.white,
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(12),
-                      topRight: const Radius.circular(12),
-                      bottomLeft: isUser ? const Radius.circular(12) : Radius.zero,
-                      bottomRight: isUser ? Radius.zero : const Radius.circular(12),
-                    ),
-                    boxShadow: [
-                      BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2))
-                    ],
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5)],
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        msg['content'],
-                        style: TextStyle(color: isUser ? Colors.white : Colors.black87, fontSize: 15),
-                      ),
+                      // RENDER CONTENT
+                      isUser
+                        ? Text(msg['content'], style: const TextStyle(color: Colors.white, fontSize: 15))
+                        : Html(
+                            data: msg['content'],
+                            style: {
+                              "body": Style(margin: Margins.all(0), padding: HtmlPaddings.all(0)),
+                              "a": Style(color: Colors.blue, textDecoration: TextDecoration.underline),
+                            },
+                            onLinkTap: (url, _, __) {
+                              if (url != null) _handleLinkTap(url);
+                            },
+                          ),
                       const SizedBox(height: 4),
                       Text(
                         DateFormat('hh:mm a').format(msg['time']),
@@ -394,16 +665,14 @@ class _SupportScreenState extends State<SupportScreen> {
             },
           ),
         ),
-        
-        if (_isAgentTyping)
-          Padding(
-            padding: const EdgeInsets.only(left: 20, bottom: 10),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text("$_agentName is typing...", style: const TextStyle(color: Colors.grey, fontSize: 12)),
-            ),
-          ),
 
+        // Typing Indicators
+        if (_isLoadingAi)
+           const Padding(padding: EdgeInsets.all(8), child: Text("AI is thinking...", style: TextStyle(color: Colors.grey))),
+        if (_isAgentTyping)
+           Padding(padding: const EdgeInsets.all(8), child: Text("$_agentName is typing...", style: const TextStyle(color: Colors.grey))),
+
+        // Input Area
         Container(
           padding: const EdgeInsets.all(10),
           decoration: const BoxDecoration(
@@ -413,17 +682,15 @@ class _SupportScreenState extends State<SupportScreen> {
           child: SafeArea(
             child: Row(
               children: [
-                if (widget.isEmbedded && _isNameSubmitted)
-                   IconButton(
-                     icon: const Icon(Icons.logout, color: Colors.red),
-                     onPressed: _endChat,
-                   ),
                 Expanded(
                   child: TextField(
                     controller: _messageController,
-                    enabled: _isAssigned && _isConnected,
+                    // Enable if: (AI is ready) OR (Live is Assigned & Connected)
+                    enabled: !_isLiveSupport || (_isAssigned && _isConnected),
                     decoration: InputDecoration(
-                      hintText: _isAssigned ? "Type a message..." : "Waiting for agent...",
+                      hintText: _isLiveSupport 
+                          ? (_isAssigned ? "Type a message..." : "Waiting for agent...") 
+                          : "Ask AI about products...",
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(25), borderSide: BorderSide.none),
                       filled: true,
                       fillColor: Colors.grey[100],
@@ -434,10 +701,10 @@ class _SupportScreenState extends State<SupportScreen> {
                 ),
                 const SizedBox(width: 8),
                 CircleAvatar(
-                  backgroundColor: _isAssigned && _isConnected ? const Color(0xFF00599c) : Colors.grey,
+                  backgroundColor: (!_isLiveSupport || (_isAssigned && _isConnected)) ? const Color(0xFF00599c) : Colors.grey,
                   child: IconButton(
                     icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                    onPressed: (_isAssigned && _isConnected) ? _sendMessage : null,
+                    onPressed: (!_isLiveSupport || (_isAssigned && _isConnected)) ? _sendMessage : null,
                   ),
                 ),
               ],
@@ -446,5 +713,30 @@ class _SupportScreenState extends State<SupportScreen> {
         ),
       ],
     );
+  }
+
+  void _handleLinkTap(String url) async {
+    // 1. Handle "product:sku" links (Internal Navigation)
+    if (url.startsWith("product:")) {
+      final sku = url.split(":")[1];
+      // Fetch product and navigate
+      // Note: This assumes you have a named route or logic for product details
+      try {
+        final product = await MagentoAPI().fetchProductBySku(sku);
+        if (product != null && mounted) {
+           Navigator.pushNamed(context, '/productDetail', arguments: product);
+        } else {
+           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Product not found")));
+        }
+      } catch (e) {
+        debugPrint("Nav Error: $e");
+      }
+      return;
+    }
+
+    // 2. Handle standard HTTP links
+    if (await canLaunchUrl(Uri.parse(url))) {
+      await launchUrl(Uri.parse(url));
+    }
   }
 }
