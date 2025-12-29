@@ -14,6 +14,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../api/magento_api.dart';
 // Ensure this model file exists and has Product/Order classes
 import '../models/magento_models.dart'; 
+import 'category_detail_screen.dart'; // Needed for category navigation
 
 class SupportScreen extends StatefulWidget {
   final bool isEmbedded;
@@ -53,7 +54,6 @@ class _SupportScreenState extends State<SupportScreen> {
   
   String _customerId = "";
   
-  // [FIX] Ensure this URL is correct (no typo in 'server')
   final String _serverUrl = "https://support-server.onrender.com";
 
   @override
@@ -91,6 +91,26 @@ class _SupportScreenState extends State<SupportScreen> {
   // 1. AI & GEMINI LOGIC
   // ---------------------------------------------------------------------------
 
+  /// Helper to recursively flatten category tree into a text list for AI Context
+  String _buildCategoryTree(List<Category> categories) {
+    final buffer = StringBuffer();
+    for (var cat in categories) {
+      _serializeCategory(cat, "", buffer);
+    }
+    return buffer.toString();
+  }
+
+  void _serializeCategory(Category cat, String parentPath, StringBuffer buffer) {
+    if (!cat.isActive) return;
+    
+    final fullPath = parentPath.isEmpty ? cat.name : "$parentPath > ${cat.name}";
+    buffer.writeln("- $fullPath");
+    
+    for (var child in cat.children) {
+      _serializeCategory(child, fullPath, buffer);
+    }
+  }
+
   Future<void> _initGemini() async {
     final apiKey = dotenv.env['GEMINI_API_KEY'];
     if (apiKey == null) {
@@ -98,38 +118,55 @@ class _SupportScreenState extends State<SupportScreen> {
       return;
     }
 
-    // 1. Fetch Categories for Context
+    // 1. Fetch ALL Categories for Context (Recursive)
     String categoryContext = "";
     try {
       final cats = await MagentoAPI().fetchCategories();
-      final catNames = cats.map((c) => c.name).take(30).join(", ");
-      categoryContext = "Available Categories: $catNames";
-    } catch (_) {
+      final catTree = _buildCategoryTree(cats);
+      
+      if (catTree.isNotEmpty) {
+        categoryContext = "Here is the full list of Categories available in the store:\n$catTree";
+      } else {
+        categoryContext = "Store Categories: Hardware, Nuts, Bolts, Fasteners";
+      }
+    } catch (e) {
+      debugPrint("Error fetching categories for AI context: $e");
       categoryContext = "Hardware and Tools Store";
     }
 
     // 2. Define System Instruction
+    // [FIX] Added explicit formatting rules to prevent markdown bold and enforce HTML links
     final systemPrompt = """
-You are the AI Assistant for 'Buy Nut Bolts' ($categoryContext).
+You are the AI Assistant for 'Buy Nut Bolts'.
 Goal: Help users find products, check orders, or submit Requests for Quote (RFQ).
 
-CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
+CONTEXT:
+$categoryContext
 
-1. SEARCH PRODUCTS:
-   Output: SEARCH: <query>
+CRITICAL FORMATTING RULES:
+1. **NO MARKDOWN**: Do NOT use markdown bold (**text**) or italics (*text*).
+2. **USE LINKS**:
+   - When mentioning a product category, MUST format as: <a href="category:CategoryName">CategoryName</a>
+   - When mentioning a specific SKU, format as: <a href="product:SKU">ProductName</a>
+   - Example: "You might need <a href="category:Hex Bolts">Hex Bolts</a> or <a href="category:Nuts">Nuts</a>."
 
-2. CHECK ORDER STATUS:
-   Output: ORDER: <order_id> | <email>
+3. When a user asks for product suggestions, use the category list provided above to guide them.
 
-3. SUBMIT RFQ (Bulk Orders):
-   Output: RFQ: <product> | <qty> | <name> | <email> | <mobile>
+TOOLS (Trigger by outputting ONLY the command):
+- SEARCH PRODUCTS:
+  Output: SEARCH: <query>
 
-4. GENERAL CHAT:
-   Keep it brief. If you can't help, suggest tapping the headset icon for a live agent.
+- CHECK ORDER STATUS:
+  Output: ORDER: <order_id> | <email>
+
+- SUBMIT RFQ (Bulk Orders):
+  Output: RFQ: <product> | <qty> | <name> | <email> | <mobile>
+
+- GENERAL CHAT:
+  Keep it brief. If you can't help, suggest tapping the headset icon for a live agent.
 """;
 
     try {
-      // [FIX] CHANGED MODEL NAME to 'gemini-2.5-flash' because '1.5' is deprecated/shutdown
       _aiModel = GenerativeModel(
         model: 'gemini-2.5-flash', 
         apiKey: apiKey,
@@ -191,7 +228,6 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
 
     } catch (e) {
       debugPrint("AI Error: $e");
-      // Handle "404 Not Found" gracefully in UI
       if (e.toString().contains("404")) {
          _addSystemMessage("Error: AI Model deprecated. Please contact support.");
       } else {
@@ -693,6 +729,7 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
   }
 
   void _handleLinkTap(String url) async {
+    // [FIX] Handle 'product:' link
     if (url.startsWith("product:")) {
       final sku = url.split(":")[1];
       try {
@@ -707,6 +744,18 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
       }
       return;
     }
+    // [FIX] Handle 'category:' link
+    if (url.startsWith("category:")) {
+      final catName = url.split(":")[1];
+      final category = MagentoAPI().findCategoryByName(catName);
+      if (category != null && mounted) {
+        Navigator.push(context, MaterialPageRoute(builder: (context) => CategoryDetailScreen(category: category)));
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Category '$catName' not found")));
+      }
+      return;
+    }
+
     if (await canLaunchUrl(Uri.parse(url))) {
       await launchUrl(Uri.parse(url));
     }

@@ -29,9 +29,8 @@ class MagentoAPI {
   static Map<String, Category> _detailsCache = {};
   static Map<String, dynamic>? cachedUser; 
 
-  // [CONFIG] Custom RFQ Settings provided by user
   static const String _rfqUrl = "https://rfq.buynutbolts.com/api/rfq_ingest.php";
-  static const String _rfqToken = "VA8xnbbXSeDYgvbyJrbcFJMbH@Nwk&Sxt3S1&iQL\$fhE9PUKpXIdrWwap\$K\$6jvf";
+  static const String _rfqToken = r"VA8xnbbXSeDYgvbyJrbcFJMbH@Nwk&Sxt3S1&iQL$fhE9PUKpXIdrWwap$K$6jvf";
 
   static const List<String> _excludedAttributeCodes = [
     "ship_bundle_items", "page_layout", "gift_message_available", "tax_class_id",
@@ -63,49 +62,9 @@ class MagentoAPI {
   }
 
   // ---------------------------------------------------------------------------
-  // AI TOOLS
+  // AI TOOLS & RFQ
   // ---------------------------------------------------------------------------
 
-  /// Checks order status using Standard Magento API filters
-  Future<Map<String, dynamic>> checkOrderStatus(String orderId, String email) async {
-    try {
-      // Filter by Increment ID AND Customer Email
-      final queryParams = {
-        "searchCriteria[filter_groups][0][filters][0][field]": "increment_id",
-        "searchCriteria[filter_groups][0][filters][0][value]": orderId,
-        "searchCriteria[filter_groups][0][filters][0][condition_type]": "eq",
-        "searchCriteria[filter_groups][1][filters][0][field]": "customer_email",
-        "searchCriteria[filter_groups][1][filters][0][value]": email,
-        "searchCriteria[filter_groups][1][filters][0][condition_type]": "eq",
-      };
-
-      final response = await _oauthClient.get("/orders", params: queryParams);
-      
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final items = data['items'] as List? ?? [];
-        
-        if (items.isNotEmpty) {
-          final order = items.first;
-          return {
-            'success': true,
-            'status': order['status'] ?? 'Unknown',
-            'eta': order['created_at'], // Standard API uses created_at
-            'message': 'Order found.'
-          };
-        } else {
-           return {'success': false, 'message': 'No order found with that ID and Email.'};
-        }
-      } else {
-        return {'success': false, 'message': 'Server Error: ${response.statusCode}'};
-      }
-    } catch (e) {
-      debugPrint("Order Status Error: $e");
-      return {'success': false, 'message': 'Connection Error: $e'};
-    }
-  }
-
-  /// Submits RFQ using the CUSTOM RFQ WEBSITE provided
   Future<Map<String, dynamic>> submitRfq({
     required String product,
     required String quantity,
@@ -114,26 +73,40 @@ class MagentoAPI {
     required String mobile,
   }) async {
     try {
-      final body = {
-        'token': _rfqToken, // Authentication
+      final payload = {
         'product': product,
-        'quantity': quantity,
+        'quantity': int.tryParse(quantity) ?? 1,
         'name': name,
         'email': email,
         'mobile': mobile,
-        'source': 'app_ai_assistant'
+        'source': 'app_ai_assistant', 
       };
 
       final response = await http.post(
         Uri.parse(_rfqUrl),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode(body),
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer $_rfqToken",
+          "User-Agent": "BuyNutBoltsApp/1.0"
+        },
+        body: jsonEncode(payload), 
       );
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        try {
+           final jsonResponse = jsonDecode(response.body);
+           if (jsonResponse is Map) {
+             if (jsonResponse.containsKey('success') && jsonResponse['success'] == false) {
+               return {'success': false, 'message': jsonResponse['message'] ?? 'Server rejected request.'};
+             }
+             return {'success': true, 'message': jsonResponse['message'] ?? 'RFQ Submitted!'};
+           }
+        } catch (_) {}
         return {'success': true, 'message': 'RFQ Submitted successfully!'};
       } else {
-        return {'success': false, 'message': 'RFQ Server Error: ${response.statusCode}'};
+        debugPrint("RFQ Failed: ${response.statusCode} - ${response.body}");
+        return {'success': false, 'message': 'Server Error (${response.statusCode})'};
       }
     } catch (e) {
       debugPrint("RFQ Error: $e");
@@ -141,100 +114,164 @@ class MagentoAPI {
     }
   }
 
+  Future<Map<String, dynamic>> checkOrderStatus(String orderId, String email) async {
+    try {
+      String formattedId = orderId.trim();
+      if (RegExp(r'^\d+$').hasMatch(formattedId) && formattedId.length < 9) {
+        formattedId = formattedId.padLeft(9, '0');
+      }
+
+      final queryParams = {
+        "searchCriteria[filter_groups][0][filters][0][field]": "increment_id",
+        "searchCriteria[filter_groups][0][filters][0][value]": formattedId,
+        "searchCriteria[filter_groups][0][filters][0][condition_type]": "eq",
+        "searchCriteria[filter_groups][1][filters][0][field]": "customer_email",
+        "searchCriteria[filter_groups][1][filters][0][value]": email.trim(),
+        "searchCriteria[filter_groups][1][filters][0][condition_type]": "eq",
+      };
+
+      final response = await _oauthClient.get("/orders", params: queryParams);
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final items = data['items'] as List? ?? [];
+        if (items.isNotEmpty) {
+          final order = items.first;
+          return {'success': true, 'status': order['status'] ?? 'Unknown', 'eta': order['created_at'], 'message': 'Order found.'};
+        } else {
+           return {'success': false, 'message': 'No order found with ID #$formattedId'};
+        }
+      } else {
+        return {'success': false, 'message': 'Server Error: ${response.statusCode}'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection Error: $e'};
+    }
+  }
+
   // ---------------------------------------------------------------------------
-  // EXISTING METHODS
+  // HELPER METHODS
+  // ---------------------------------------------------------------------------
+
+  // [FIX] RECURSIVE SEARCH to find deeply nested categories
+  Category? findCategoryByName(String name) {
+    if (name.isEmpty) return null;
+    return _findCategoryRecursive(cachedCategories, name);
+  }
+
+  Category? _findCategoryRecursive(List<Category> categories, String name) {
+    for (var cat in categories) {
+      // Direct match
+      if (cat.name.trim().toLowerCase() == name.trim().toLowerCase()) {
+        return cat;
+      }
+      // Recursive check in children
+      if (cat.children.isNotEmpty) {
+        final found = _findCategoryRecursive(cat.children, name);
+        if (found != null) return found;
+      }
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // SEARCH LOGIC
+  // ---------------------------------------------------------------------------
+
+  Future<List<Product>> searchProducts(String query) async { 
+    return _performSearch(query, pageSize: 20); 
+  }
+
+  Future<List<Product>> getSearchSuggestions(String query) async { 
+    return _performSearch(query, pageSize: 4); 
+  }
+
+  Future<List<Product>> _performSearch(String query, {required int pageSize}) async {
+    final cleanQuery = query.trim();
+    if (cleanQuery.isEmpty) return [];
+
+    try {
+      final Map<String, String> queryParams = {
+        "searchCriteria[pageSize]": pageSize.toString(),
+        "searchCriteria[currentPage]": "1"
+      };
+
+      final words = cleanQuery.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+      int groupIndex = 0;
+      
+      for (var word in words) {
+        queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][field]"] = "name";
+        queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][value]"] = "%$word%";
+        queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][condition_type]"] = "like";
+
+        queryParams["searchCriteria[filter_groups][$groupIndex][filters][1][field]"] = "sku";
+        queryParams["searchCriteria[filter_groups][$groupIndex][filters][1][value]"] = "%$word%";
+        queryParams["searchCriteria[filter_groups][$groupIndex][filters][1][condition_type]"] = "like";
+
+        groupIndex++;
+      }
+
+      final response = await _oauthClient.get("/products", params: queryParams);
+      if (response.statusCode == 200) {
+        final items = (jsonDecode(response.body)["items"] as List? ?? []);
+        return items.map((e) => Product.fromJson(e)).toList();
+      }
+    } catch (e) {
+      debugPrint("Search Products Error: $e");
+    }
+    return [];
+  }
+
+  // ---------------------------------------------------------------------------
+  // EXISTING METHODS (Unchanged)
   // ---------------------------------------------------------------------------
 
   Future<void> warmUpHomeData() async {
-    debugPrint("[MagentoAPI] Warming up Home Data...");
-    
     final categories = await fetchCategories();
-    
     final List<Category> targetCategories = [];
     for (var cat in categories) {
       targetCategories.add(cat);
       targetCategories.addAll(cat.children);
     }
-
     int limit = targetCategories.length > 5 ? 5 : targetCategories.length;
     List<Future> tasks = [];
-
     for (int i = 0; i < limit; i++) {
-      tasks.add(fetchProducts(
-        categoryId: targetCategories[i].id,
-        pageSize: 10,
-      ));
+      tasks.add(fetchProducts(categoryId: targetCategories[i].id, pageSize: 10));
     }
-    
-    try {
-      await Future.wait(tasks);
-      debugPrint("[MagentoAPI] Home Data Warm-up Complete.");
-    } catch (e) {
-      debugPrint("[MagentoAPI] Home Warm-up Partial Fail: $e");
-    }
-
+    try { await Future.wait(tasks); } catch (e) { debugPrint("Home Warm-up Partial Fail: $e"); }
     final token = await _getCustomerToken();
-    if (token != null) {
-      await Future.wait([
-        fetchCustomerDetails(token),
-        getCartItems(), 
-      ]);
-    }
+    if (token != null) { await Future.wait([ fetchCustomerDetails(token), getCartItems() ]); }
   }
 
   Future<void> updateProductCache(Product updatedProduct) async {
     bool changed = false;
     final index = cachedProducts.indexWhere((p) => p.sku == updatedProduct.sku);
-    if (index != -1) {
-      cachedProducts[index] = updatedProduct;
-      changed = true;
-    }
+    if (index != -1) { cachedProducts[index] = updatedProduct; changed = true; }
     categoryProductsCache.forEach((key, list) {
       final catIndex = list.indexWhere((p) => p.sku == updatedProduct.sku);
-      if (catIndex != -1) {
-        list[catIndex] = updatedProduct;
-      }
+      if (catIndex != -1) list[catIndex] = updatedProduct;
     });
     if (changed) {
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('cached_products_data', jsonEncode(cachedProducts.map((e) => e.toJson()).toList()));
-      } catch (e) {
-        debugPrint("Error updating product cache: $e");
-      }
+      } catch (e) { debugPrint("Error updating product cache: $e"); }
     }
   }
 
-  Future<List<Product>> fetchProducts({
-    int? categoryId, 
-    int page = 1, 
-    int pageSize = 20,
-    Map<String, dynamic>? filters,
-    String? sortField,     
-    String? sortDirection, 
-  }) async {
+  Future<List<Product>> fetchProducts({ int? categoryId, int page = 1, int pageSize = 20, Map<String, dynamic>? filters, String? sortField, String? sortDirection }) async {
     bool isDefaultSort = sortField == null || sortField.isEmpty;
     bool hasFilters = filters != null && filters.isNotEmpty;
     bool isFirstPage = page == 1;
     bool isAllProducts = categoryId == null;
 
-    if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort && cachedProducts.isNotEmpty) {
-      return cachedProducts;
-    }
-    
+    if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort && cachedProducts.isNotEmpty) return cachedProducts;
     if (categoryId != null && isFirstPage && !hasFilters && isDefaultSort) {
-      if (categoryProductsCache.containsKey(categoryId) && categoryProductsCache[categoryId]!.isNotEmpty) {
-        return categoryProductsCache[categoryId]!;
-      }
+      if (categoryProductsCache.containsKey(categoryId) && categoryProductsCache[categoryId]!.isNotEmpty) return categoryProductsCache[categoryId]!;
     }
-    
     try {
-      final Map<String, String> queryParams = {
-        "searchCriteria[pageSize]": pageSize.toString(),
-        "searchCriteria[currentPage]": page.toString(),
-      };
+      final Map<String, String> queryParams = { "searchCriteria[pageSize]": pageSize.toString(), "searchCriteria[currentPage]": page.toString() };
       int groupIndex = 0;
-
       if (categoryId != null) {
         queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][field]"] = "category_id";
         queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][value]"] = "$categoryId";
@@ -253,36 +290,21 @@ class MagentoAPI {
         queryParams["searchCriteria[sortOrders][0][field]"] = sortField;
         queryParams["searchCriteria[sortOrders][0][direction]"] = sortDirection;
       }
-
       final response = await _oauthClient.get("/products", params: queryParams);
-      
       if (response.statusCode == 200) {
         final products = await compute(_parseProducts, response.body);
-
-        if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort) {
-          cachedProducts = products;
-        }
-        if (categoryId != null && isFirstPage && !hasFilters && isDefaultSort) {
-          categoryProductsCache[categoryId] = products;
-        }
+        if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort) cachedProducts = products;
+        if (categoryId != null && isFirstPage && !hasFilters && isDefaultSort) categoryProductsCache[categoryId] = products;
         return products;
       }
-    } catch (e) {
-      debugPrint("Fetch Products Error: $e");
-    }
+    } catch (e) { debugPrint("Fetch Products Error: $e"); }
     return [];
   }
   
   Future<List<TierPrice>> fetchTierPrices(String sku) async {
     try {
-      final response = await _oauthClient.post(
-        "/products/tier-prices-information", 
-        body: jsonEncode({"skus": [sku]})
-      );
-      if (response.statusCode == 200) {
-        final List data = jsonDecode(response.body);
-        return data.map((e) => TierPrice.fromJson(e)).toList();
-      }
+      final response = await _oauthClient.post("/products/tier-prices-information", body: jsonEncode({"skus": [sku]}));
+      if (response.statusCode == 200) { final List data = jsonDecode(response.body); return data.map((e) => TierPrice.fromJson(e)).toList(); }
     } catch (e) { debugPrint("Fetch Tier Prices Error: $e"); }
     return [];
   }
@@ -307,11 +329,7 @@ class MagentoAPI {
 
   Future<List<ProductAttribute>> fetchGlobalFilterableAttributes() async {
     try {
-      final queryParams = {
-        "searchCriteria[filter_groups][0][filters][0][field]": "is_filterable",
-        "searchCriteria[filter_groups][0][filters][0][value]": "1",
-        "searchCriteria[filter_groups][0][filters][0][condition_type]": "eq",
-      };
+      final queryParams = { "searchCriteria[filter_groups][0][filters][0][field]": "is_filterable", "searchCriteria[filter_groups][0][filters][0][value]": "1", "searchCriteria[filter_groups][0][filters][0][condition_type]": "eq" };
       final response = await _oauthClient.get("/products/attributes", params: queryParams);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -323,28 +341,16 @@ class MagentoAPI {
   }
 
   Future<void> clearCache() async {
-    cachedCategories.clear();
-    cachedProducts.clear();
-    categoryProductsCache.clear();
-    _detailsCache.clear();
-    cachedUser = null;
+    cachedCategories.clear(); cachedProducts.clear(); categoryProductsCache.clear(); _detailsCache.clear(); cachedUser = null;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('cached_categories_data');
-    await prefs.remove('cached_products_data');
-    await prefs.remove('category_details_cache');
-    await prefs.remove('cached_user_data');
+    await prefs.remove('cached_categories_data'); await prefs.remove('cached_products_data'); await prefs.remove('category_details_cache'); await prefs.remove('cached_user_data');
   }
 
   Future<List<Product>> _fetchProductsBySkus(List<String> skus) async {
     if (skus.isEmpty) return [];
     try {
       final skuListStr = skus.join(",");
-      final queryParams = {
-        "searchCriteria[filter_groups][0][filters][0][field]": "sku",
-        "searchCriteria[filter_groups][0][filters][0][value]": skuListStr,
-        "searchCriteria[filter_groups][0][filters][0][condition_type]": "in",
-        "searchCriteria[pageSize]": "${skus.length}" 
-      };
+      final queryParams = { "searchCriteria[filter_groups][0][filters][0][field]": "sku", "searchCriteria[filter_groups][0][filters][0][value]": skuListStr, "searchCriteria[filter_groups][0][filters][0][condition_type]": "in", "searchCriteria[pageSize]": "${skus.length}" };
       final response = await _oauthClient.get("/products", params: queryParams);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -357,7 +363,6 @@ class MagentoAPI {
 
   Future<List<Category>> fetchCategories() async {
     if (cachedCategories.isNotEmpty) return cachedCategories;
-    
     final prefs = await SharedPreferences.getInstance();
     if (prefs.containsKey('cached_categories_data')) {
       try {
@@ -381,30 +386,19 @@ class MagentoAPI {
   Future<List<Category>> enrichCategories(List<Category> categories) async {
     final prefs = await SharedPreferences.getInstance();
     if (_detailsCache.isEmpty && prefs.containsKey('category_details_cache')) {
-      try {
-        _detailsCache = (jsonDecode(prefs.getString('category_details_cache')!) as Map<String, dynamic>).map((k, v) => MapEntry(k, Category.fromJson(v)));
-      } catch (e) { debugPrint("Load Category Details Cache Error: $e"); }
+      try { _detailsCache = (jsonDecode(prefs.getString('category_details_cache')!) as Map<String, dynamic>).map((k, v) => MapEntry(k, Category.fromJson(v))); } catch (e) { debugPrint("Load Category Details Cache Error: $e"); }
     }
     List<Future<Category>> tasks = categories.map((cat) async {
       final idStr = cat.id.toString();
-      if (_detailsCache.containsKey(idStr)) {
-        final c = _detailsCache[idStr]!;
-        return Category(id: c.id, name: c.name, isActive: c.isActive, imageUrl: c.imageUrl, children: cat.children);
-      }
+      if (_detailsCache.containsKey(idStr)) { final c = _detailsCache[idStr]!; return Category(id: c.id, name: c.name, isActive: c.isActive, imageUrl: c.imageUrl, children: cat.children); }
       try {
         final response = await _oauthClient.get("/categories/${cat.id}");
-        if (response.statusCode == 200) {
-          final c = Category.fromJson(jsonDecode(response.body));
-          _detailsCache[idStr] = c;
-          return Category(id: c.id, name: c.name, isActive: c.isActive, imageUrl: c.imageUrl, children: cat.children);
-        }
+        if (response.statusCode == 200) { final c = Category.fromJson(jsonDecode(response.body)); _detailsCache[idStr] = c; return Category(id: c.id, name: c.name, isActive: c.isActive, imageUrl: c.imageUrl, children: cat.children); }
       } catch (e) { debugPrint("Enrich Category ${cat.id} Error: $e"); }
       return cat;
     }).toList();
     final results = await Future.wait(tasks);
-    try {
-      prefs.setString('category_details_cache', jsonEncode(_detailsCache.map((k, v) => MapEntry(k, v.toJson()))));
-    } catch (e) { debugPrint("Save Category Details Cache Error: $e"); }
+    try { prefs.setString('category_details_cache', jsonEncode(_detailsCache.map((k, v) => MapEntry(k, v.toJson())))); } catch (e) { debugPrint("Save Category Details Cache Error: $e"); }
     return results.where((c) => c.isActive).toList();
   }
 
@@ -415,29 +409,6 @@ class MagentoAPI {
       if (items.isNotEmpty) return Product.fromJson(items.first);
     } catch (e) { debugPrint("Fetch Product by SKU Error: $e"); }
     return null;
-  }
-
-  Future<List<Product>> searchProducts(String query) async {
-    return _performSearch(query, pageSize: 20);
-  }
-
-  Future<List<Product>> getSearchSuggestions(String query) async {
-    return _performSearch(query, pageSize: 4);
-  }
-
-  Future<List<Product>> _performSearch(String query, {required int pageSize}) async {
-    if (query.trim().isEmpty) return [];
-    try {
-      final response = await _oauthClient.get("/products", params: {
-        "searchCriteria[filter_groups][0][filters][0][field]": "name", "searchCriteria[filter_groups][0][filters][0][value]": "%$query%", "searchCriteria[filter_groups][0][filters][0][condition_type]": "like",
-        "searchCriteria[filter_groups][0][filters][1][field]": "sku", "searchCriteria[filter_groups][0][filters][1][value]": "%$query%", "searchCriteria[filter_groups][0][filters][1][condition_type]": "like",
-        "searchCriteria[pageSize]": pageSize.toString()
-      });
-      if (response.statusCode == 200) {
-        return (jsonDecode(response.body)["items"] as List? ?? []).map((e) => Product.fromJson(e)).toList();
-      }
-    } catch (e) { debugPrint("Search Products Error: $e"); }
-    return [];
   }
 
   Future<List<CartItem>?> getCartItems() async {

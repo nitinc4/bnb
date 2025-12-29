@@ -1,11 +1,9 @@
 // lib/screens/home_screen.dart
-// ignore_for_file: deprecated_member_use
-
 import 'package:flutter/material.dart' hide Category; 
 import 'package:provider/provider.dart'; 
 import '../widgets/product_card.dart';
 import '../widgets/app_drawer.dart'; 
-import '../widgets/bnb_shimmer.dart'; // [NEW]
+import '../widgets/bnb_shimmer.dart'; 
 import '../providers/cart_provider.dart'; 
 import '../api/magento_api.dart';
 import '../models/magento_models.dart';
@@ -27,85 +25,103 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  DateTime? _lastPressedAt; // [FIX] Track back press time
 
   void _onItemTapped(int index) {
     setState(() { _selectedIndex = index; });
   }
 
+  // [FIX] Handle Back Button Logic
+  Future<bool> _onWillPop() async {
+    if (_selectedIndex != 0) {
+      setState(() { _selectedIndex = 0; }); // Go to Home Tab
+      return false; // Do not exit
+    }
+
+    final now = DateTime.now();
+    if (_lastPressedAt == null || now.difference(_lastPressedAt!) > const Duration(seconds: 2)) {
+      _lastPressedAt = now;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Press back again to exit'), duration: Duration(seconds: 2)),
+      );
+      return false; 
+    }
+    return true; // Allow exit
+  }
+
   @override
   Widget build(BuildContext context) {
-    // We use IndexedStack or keep state alive in tabs to prevent rebuilding
     final List<Widget> pages = [
-      const HomeTab(), // Extracted to separate widget for KeepAlive
+      const HomeTab(),
       const CategoriesScreen(),
       const CartScreen(),
       const ProfileScreen(),
       const SupportScreen(isEmbedded: true),
     ];
 
-    return Scaffold(
-      key: _scaffoldKey,
-      backgroundColor: Colors.white,
-      drawer: const AppDrawer(),
-      appBar: AppBar(
-        elevation: 0,
+    return WillPopScope( // [FIX] Wraps Scaffold
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        key: _scaffoldKey,
         backgroundColor: Colors.white,
-        title: const Text("BuyNutBolts", style: TextStyle(color: Color(0xFF00599c), fontWeight: FontWeight.bold)),
-        leading: IconButton(
-          icon: const Icon(Icons.menu, color: Color(0xFF00599c)),
-          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-        ),
-        actions: [
-          Consumer<CartProvider>(
-            builder: (_, cart, ch) => Stack(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.shopping_cart_outlined, color: Color(0xFF00599c)),
-                  onPressed: () => setState(() => _selectedIndex = 2),
-                ),
-                if (cart.itemCount > 0)
-                  Positioned(
-                    right: 8, top: 8,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(color: Color(0xFFF54336), shape: BoxShape.circle),
-                      child: Text('${cart.itemCount}', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                    ),
+        drawer: const AppDrawer(),
+        appBar: AppBar(
+          elevation: 0,
+          backgroundColor: Colors.white,
+          title: const Text("BuyNutBolts", style: TextStyle(color: Color(0xFF00599c), fontWeight: FontWeight.bold)),
+          leading: IconButton(
+            icon: const Icon(Icons.menu, color: Color(0xFF00599c)),
+            onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+          ),
+          actions: [
+            Consumer<CartProvider>(
+              builder: (_, cart, ch) => Stack(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.shopping_cart_outlined, color: Color(0xFF00599c)),
+                    onPressed: () => setState(() => _selectedIndex = 2),
                   ),
-              ],
-            ),
-          )
-        ],
-      ),
-      // [FIX] IndexedStack keeps all tabs alive, so Home doesn't rebuild/shimmer on switch
-      body: SafeArea(
-        child: IndexedStack(
-          index: _selectedIndex,
-          children: pages,
+                  if (cart.itemCount > 0)
+                    Positioned(
+                      right: 8, top: 8,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(color: Color(0xFFF54336), shape: BoxShape.circle),
+                        child: Text('${cart.itemCount}', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                ],
+              ),
+            )
+          ],
         ),
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        currentIndex: _selectedIndex,
-        selectedItemColor: const Color(0xFF00599c),
-        unselectedItemColor: Colors.grey,
-        onTap: _onItemTapped,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.category_outlined), label: 'Categories'),
-          BottomNavigationBarItem(icon: Icon(Icons.shopping_cart_outlined), label: 'Cart'),
-          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Profile'),
-          BottomNavigationBarItem(icon: Icon(Icons.support_agent), label: 'Support'),
-        ],
+        body: SafeArea(
+          child: IndexedStack(
+            index: _selectedIndex,
+            children: pages,
+          ),
+        ),
+        bottomNavigationBar: BottomNavigationBar(
+          type: BottomNavigationBarType.fixed,
+          currentIndex: _selectedIndex,
+          selectedItemColor: const Color(0xFF00599c),
+          unselectedItemColor: Colors.grey,
+          onTap: _onItemTapped,
+          items: const [
+            BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+            BottomNavigationBarItem(icon: Icon(Icons.category_outlined), label: 'Categories'),
+            BottomNavigationBarItem(icon: Icon(Icons.shopping_cart_outlined), label: 'Cart'),
+            BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Profile'),
+            BottomNavigationBarItem(icon: Icon(Icons.support_agent), label: 'Support'),
+          ],
+        ),
       ),
     );
   }
 }
 
-// [FIX] Extracted HomeTab to use AutomaticKeepAliveClientMixin
 class HomeTab extends StatefulWidget {
   const HomeTab({super.key});
-
   @override
   State<HomeTab> createState() => _HomeTabState();
 }
@@ -114,7 +130,7 @@ class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
   Future<List<Category>> _categoriesFuture = Future.value(MagentoAPI.cachedCategories);
 
   @override
-  bool get wantKeepAlive => true; // Prevents disposal when switching tabs
+  bool get wantKeepAlive => true; 
 
   @override
   void initState() {
@@ -130,10 +146,7 @@ class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
   Future<void> _onRefresh() async {
     await MagentoAPI().clearCache();
     final categoriesTask = MagentoAPI().fetchCategories();
-    setState(() {
-      _categoriesFuture = categoriesTask;
-    });
-
+    setState(() { _categoriesFuture = categoriesTask; });
     try {
       final categories = await categoriesTask;
       final List<Category> allCategories = [];
@@ -144,21 +157,16 @@ class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
       int limit = allCategories.length > 5 ? 5 : allCategories.length;
       List<Future> productTasks = [];
       for (int i = 0; i < limit; i++) {
-        productTasks.add(MagentoAPI().fetchProducts(
-          categoryId: allCategories[i].id,
-          pageSize: 10,
-        ));
+        productTasks.add(MagentoAPI().fetchProducts(categoryId: allCategories[i].id, pageSize: 10));
       }
       await Future.wait(productTasks);
       if (mounted) setState(() {}); 
-    } catch (e) {
-      debugPrint("Refresh Error: $e");
-    }
+    } catch (e) { debugPrint("Refresh Error: $e"); }
   }
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // Required for KeepAlive
+    super.build(context); 
     
     return RefreshIndicator(
       onRefresh: _onRefresh,
@@ -199,8 +207,7 @@ class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
                   if (snapshot.hasData && snapshot.data!.isNotEmpty) {
                     final categories = snapshot.data!;
                     return ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: categories.length,
+                      scrollDirection: Axis.horizontal, itemCount: categories.length,
                       itemBuilder: (context, index) {
                         final cat = categories[index];
                         return InkWell(
@@ -211,22 +218,14 @@ class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
                               children: [
                                 Container(
                                   width: 100, height: 100,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white, shape: BoxShape.circle,
-                                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 5, offset: const Offset(0, 3))],
-                                  ),
+                                  decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 5, offset: const Offset(0, 3))]),
                                   child: Padding(
                                     padding: const EdgeInsets.all(20.0),
-                                    child: cat.imageUrl != null 
-                                        ? Image.network(cat.imageUrl!, fit: BoxFit.contain)
-                                        : Image.asset("assets/icons/placeholder.png"),
+                                    child: cat.imageUrl != null ? Image.network(cat.imageUrl!, fit: BoxFit.contain) : Image.asset("assets/icons/placeholder.png"),
                                   ),
                                 ),
                                 const SizedBox(height: 15),
-                                SizedBox(
-                                  width: 100,
-                                  child: Text(cat.name, maxLines: 3, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 13)),
-                                ),
+                                SizedBox(width: 100, child: Text(cat.name, maxLines: 3, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 13))),
                               ],
                             ),
                           ),
@@ -234,11 +233,7 @@ class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
                       },
                     );
                   }
-                  
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return BNBShimmer.categoryCircles(); // [FIX] Use Reusable Shimmer
-                  }
-                  
+                  if (snapshot.connectionState == ConnectionState.waiting) return BNBShimmer.categoryCircles(); 
                   return const Center(child: Text("No Categories"));
                 },
               ),
@@ -249,17 +244,13 @@ class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
               initialData: MagentoAPI.cachedCategories.isNotEmpty ? MagentoAPI.cachedCategories : null,
               builder: (context, snapshot) {
                 if (!snapshot.hasData || snapshot.data!.isEmpty) return const SizedBox.shrink();
-                
                 final categories = snapshot.data!;
                 final List<Category> allCategories = [];
                 for (var cat in categories) {
                   allCategories.add(cat);
                   allCategories.addAll(cat.children);
                 }
-
-                return Column(
-                  children: allCategories.map((cat) => CategoryProductRow(key: ValueKey(cat.id), category: cat)).toList(),
-                );
+                return Column(children: allCategories.map((cat) => CategoryProductRow(key: ValueKey(cat.id), category: cat)).toList());
               },
             ),
             
@@ -268,10 +259,7 @@ class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
               child: SizedBox(
                 width: double.infinity, height: 50,
                 child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF00599c),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                   onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AllProductsScreen())),
                   child: const Text("Show All Products", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                 ),
@@ -288,34 +276,21 @@ class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
 class CategoryProductRow extends StatefulWidget {
   final Category category;
   const CategoryProductRow({required this.category, super.key});
-
   @override
   State<CategoryProductRow> createState() => _CategoryProductRowState();
 }
 
 class _CategoryProductRowState extends State<CategoryProductRow> {
   late Future<List<Product>> _productsFuture;
-
   @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  void _load() {
-    _productsFuture = MagentoAPI().fetchProducts(
-      categoryId: widget.category.id,
-      pageSize: 10, 
-    );
-  }
+  void initState() { super.initState(); _load(); }
+  void _load() { _productsFuture = MagentoAPI().fetchProducts(categoryId: widget.category.id, pageSize: 10); }
 
   @override
   Widget build(BuildContext context) {
     final cachedProducts = MagentoAPI.categoryProductsCache[widget.category.id];
-
     return FutureBuilder<List<Product>>(
-      future: _productsFuture,
-      initialData: cachedProducts,
+      future: _productsFuture, initialData: cachedProducts,
       builder: (context, snapshot) {
         if (snapshot.hasData && snapshot.data!.isNotEmpty) {
           final products = snapshot.data!;
@@ -328,19 +303,14 @@ class _CategoryProductRowState extends State<CategoryProductRow> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(widget.category.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF00599c))),
-                    TextButton(
-                      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CategoryDetailScreen(category: widget.category))),
-                      child: const Text('See all', style: TextStyle(color: Color(0xFFF54336))),
-                    )
+                    TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CategoryDetailScreen(category: widget.category))), child: const Text('See all', style: TextStyle(color: Color(0xFFF54336))))
                   ],
                 ),
               ),
               SizedBox(
                 height: 260, 
                 child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: products.length,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  scrollDirection: Axis.horizontal, itemCount: products.length, padding: const EdgeInsets.symmetric(horizontal: 12),
                   itemBuilder: (context, index) {
                     final product = products[index];
                     return Container(
@@ -356,24 +326,7 @@ class _CategoryProductRowState extends State<CategoryProductRow> {
             ],
           );
         }
-
-        if (snapshot.connectionState == ConnectionState.waiting) {
-           return Column(
-             children: [
-               Padding(
-                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                 child: Row(
-                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                   children: [
-                      Container(width: 120, height: 16, color: Colors.grey.shade200),
-                   ],
-                 ),
-               ),
-               SizedBox(height: 260, child: BNBShimmer.productRow()), // [FIX] Use Reusable Shimmer
-             ],
-           );
-        }
-
+        if (snapshot.connectionState == ConnectionState.waiting) return Column(children: [Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Container(width: 120, height: 16, color: Colors.grey.shade200)])), SizedBox(height: 260, child: BNBShimmer.productRow())]);
         return const SizedBox.shrink();
       },
     );
