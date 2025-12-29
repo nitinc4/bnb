@@ -29,6 +29,10 @@ class MagentoAPI {
   static Map<String, Category> _detailsCache = {};
   static Map<String, dynamic>? cachedUser; 
 
+  // [CONFIG] Custom RFQ Settings provided by user
+  static const String _rfqUrl = "https://rfq.buynutbolts.com/api/rfq_ingest.php";
+  static const String _rfqToken = "VA8xnbbXSeDYgvbyJrbcFJMbH@Nwk&Sxt3S1&iQL\$fhE9PUKpXIdrWwap\$K\$6jvf";
+
   static const List<String> _excludedAttributeCodes = [
     "ship_bundle_items", "page_layout", "gift_message_available", "tax_class_id",
     "options_container", "custom_layout_update", "custom_design",
@@ -59,29 +63,49 @@ class MagentoAPI {
   }
 
   // ---------------------------------------------------------------------------
-  // NEW AI CHATBOT METHODS
+  // AI TOOLS
   // ---------------------------------------------------------------------------
 
-  /// Calls Bot/HardwareChat/Controller/Ai/Orderstatus.php
+  /// Checks order status using Standard Magento API filters
   Future<Map<String, dynamic>> checkOrderStatus(String orderId, String email) async {
     try {
-      final uri = Uri.parse("$baseUrl/hardwarechat/ai/orderstatus").replace(queryParameters: {
-        'order_id': orderId,
-        'email': email,
-      });
+      // Filter by Increment ID AND Customer Email
+      final queryParams = {
+        "searchCriteria[filter_groups][0][filters][0][field]": "increment_id",
+        "searchCriteria[filter_groups][0][filters][0][value]": orderId,
+        "searchCriteria[filter_groups][0][filters][0][condition_type]": "eq",
+        "searchCriteria[filter_groups][1][filters][0][field]": "customer_email",
+        "searchCriteria[filter_groups][1][filters][0][value]": email,
+        "searchCriteria[filter_groups][1][filters][0][condition_type]": "eq",
+      };
 
-      final response = await http.get(uri);
+      final response = await _oauthClient.get("/orders", params: queryParams);
       
       if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+        final data = jsonDecode(response.body);
+        final items = data['items'] as List? ?? [];
+        
+        if (items.isNotEmpty) {
+          final order = items.first;
+          return {
+            'success': true,
+            'status': order['status'] ?? 'Unknown',
+            'eta': order['created_at'], // Standard API uses created_at
+            'message': 'Order found.'
+          };
+        } else {
+           return {'success': false, 'message': 'No order found with that ID and Email.'};
+        }
+      } else {
+        return {'success': false, 'message': 'Server Error: ${response.statusCode}'};
       }
     } catch (e) {
       debugPrint("Order Status Error: $e");
+      return {'success': false, 'message': 'Connection Error: $e'};
     }
-    return {'success': false, 'message': 'Connection failed.'};
   }
 
-  /// Calls Bot/HardwareChat/Controller/Ai/Rfq.php
+  /// Submits RFQ using the CUSTOM RFQ WEBSITE provided
   Future<Map<String, dynamic>> submitRfq({
     required String product,
     required String quantity,
@@ -90,24 +114,31 @@ class MagentoAPI {
     required String mobile,
   }) async {
     try {
+      final body = {
+        'token': _rfqToken, // Authentication
+        'product': product,
+        'quantity': quantity,
+        'name': name,
+        'email': email,
+        'mobile': mobile,
+        'source': 'app_ai_assistant'
+      };
+
       final response = await http.post(
-        Uri.parse("$baseUrl/hardwarechat/ai/rfq"),
-        body: {
-          'product': product,
-          'quantity': quantity,
-          'name': name,
-          'email': email,
-          'mobile': mobile,
-        },
+        Uri.parse(_rfqUrl),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode(body),
       );
 
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {'success': true, 'message': 'RFQ Submitted successfully!'};
+      } else {
+        return {'success': false, 'message': 'RFQ Server Error: ${response.statusCode}'};
       }
     } catch (e) {
       debugPrint("RFQ Error: $e");
+      return {'success': false, 'message': 'Connection Error: $e'};
     }
-    return {'success': false, 'message': 'Connection failed.'};
   }
 
   // ---------------------------------------------------------------------------

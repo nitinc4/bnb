@@ -52,7 +52,9 @@ class _SupportScreenState extends State<SupportScreen> {
   bool _isAgentTyping = false;
   
   String _customerId = "";
-  final String _serverUrl = "https://support-sever.onrender.com";
+  
+  // [FIX] Ensure this URL is correct (no typo in 'server')
+  final String _serverUrl = "https://support-server.onrender.com";
 
   @override
   void initState() {
@@ -66,7 +68,6 @@ class _SupportScreenState extends State<SupportScreen> {
     if (MagentoAPI.cachedUser != null) {
       _customerId = MagentoAPI.cachedUser!['id'].toString();
       _nameController.text = "${MagentoAPI.cachedUser!['firstname']} ${MagentoAPI.cachedUser!['lastname']}";
-      // If user is logged in, we can auto-submit name for live chat
       if (_nameController.text.isNotEmpty) {
         _isNameSubmitted = true;
       }
@@ -83,7 +84,7 @@ class _SupportScreenState extends State<SupportScreen> {
       }
       _customerId = "guest_$storedGuestId";
     }
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   // ---------------------------------------------------------------------------
@@ -97,10 +98,9 @@ class _SupportScreenState extends State<SupportScreen> {
       return;
     }
 
-    // 1. Fetch Categories for Context (Optional, helps AI know what you sell)
+    // 1. Fetch Categories for Context
     String categoryContext = "";
     try {
-      // Assuming fetchCategories returns a list of objects with a 'name' property
       final cats = await MagentoAPI().fetchCategories();
       final catNames = cats.map((c) => c.name).take(30).join(", ");
       categoryContext = "Available Categories: $catNames";
@@ -108,8 +108,7 @@ class _SupportScreenState extends State<SupportScreen> {
       categoryContext = "Hardware and Tools Store";
     }
 
-    // 2. Define System Instruction with "Tools"
-    // We teach the AI to output specific commands like SEARCH:, ORDER:, RFQ:
+    // 2. Define System Instruction
     final systemPrompt = """
 You are the AI Assistant for 'Buy Nut Bolts' ($categoryContext).
 Goal: Help users find products, check orders, or submit Requests for Quote (RFQ).
@@ -117,69 +116,68 @@ Goal: Help users find products, check orders, or submit Requests for Quote (RFQ)
 CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
 
 1. SEARCH PRODUCTS:
-   If user asks for a product (e.g., "I need a hammer"), output:
-   SEARCH: <query>
+   Output: SEARCH: <query>
 
 2. CHECK ORDER STATUS:
-   If user asks about an order (e.g., "Status of order 10001?"), ask for email if missing.
-   Once you have ID and Email, output:
-   ORDER: <order_id> | <email>
+   Output: ORDER: <order_id> | <email>
 
 3. SUBMIT RFQ (Bulk Orders):
-   If user wants a quote, collect: Product Name, Quantity, Name, Email, Mobile.
-   Once collected, output:
-   RFQ: <product> | <qty> | <name> | <email> | <mobile>
+   Output: RFQ: <product> | <qty> | <name> | <email> | <mobile>
 
 4. GENERAL CHAT:
-   For anything else, reply normally and helpfully. Keep it brief.
-   If you can't help, suggest tapping the headset icon for a live agent.
+   Keep it brief. If you can't help, suggest tapping the headset icon for a live agent.
 """;
 
-    // Use gemini-1.5-flash for stability and speed
-    _aiModel = GenerativeModel(
-      model: 'gemini-1.5-flash', 
-      apiKey: apiKey,
-    );
-    
-    _chatSession = _aiModel.startChat(history: [
-      Content.multi([TextPart(systemPrompt)])
-    ]);
-    
-    if (mounted) {
-      setState(() => _aiInitialized = true);
-      // Initial greeting from AI
-      _messages.add({
-        'type': 'system',
-        'content': '👋 Hi! I can help you find products, track orders, or take RFQs. Tap the headset 🎧 to talk to a human.',
-        'time': DateTime.now()
-      });
+    try {
+      // [FIX] CHANGED MODEL NAME to 'gemini-2.5-flash' because '1.5' is deprecated/shutdown
+      _aiModel = GenerativeModel(
+        model: 'gemini-2.5-flash', 
+        apiKey: apiKey,
+      );
+      
+      _chatSession = _aiModel.startChat(history: [
+        Content.multi([TextPart(systemPrompt)])
+      ]);
+      
+      if (mounted) {
+        setState(() => _aiInitialized = true);
+        _messages.add({
+          'type': 'system',
+          'content': '👋 Hi! I can help you find products, track orders, or take RFQs. Tap the headset 🎧 to talk to a human.',
+          'time': DateTime.now()
+        });
+      }
+    } catch (e) {
+      debugPrint("Gemini Init Error: $e");
+      _addSystemMessage("Error initializing AI. Please update your app.");
     }
   }
 
   Future<void> _handleAiMessage(String text) async {
-    if (!_aiInitialized) return;
+    if (!_aiInitialized) {
+       _addSystemMessage("AI is still initializing... please wait.");
+       return;
+    }
     setState(() => _isLoadingAi = true);
 
     try {
-      // Send to Gemini
       final response = await _chatSession.sendMessage(Content.text(text));
       final reply = response.text?.trim() ?? "I didn't catch that.";
+      final upperReply = reply.toUpperCase();
 
-      // --- PARSE COMMANDS ---
-
-      if (reply.startsWith("SEARCH:")) {
+      if (upperReply.startsWith("SEARCH:")) {
         final query = reply.substring(7).trim();
         await _performProductSearch(query);
       } 
-      else if (reply.startsWith("ORDER:")) {
+      else if (upperReply.startsWith("ORDER:")) {
         final parts = reply.substring(6).split('|');
-        if (parts.length == 2) {
+        if (parts.length >= 2) {
           await _performOrderCheck(parts[0].trim(), parts[1].trim());
         } else {
           _addBotMessage("I need both Order ID and Email to check status.");
         }
       }
-      else if (reply.startsWith("RFQ:")) {
+      else if (upperReply.startsWith("RFQ:")) {
         final parts = reply.substring(4).split('|');
         if (parts.length >= 5) {
           await _performRfqSubmit(parts[0], parts[1], parts[2], parts[3], parts[4]);
@@ -188,13 +186,17 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
         }
       } 
       else {
-        // Normal Conversation
         _addBotMessage(reply);
       }
 
     } catch (e) {
       debugPrint("AI Error: $e");
-      _addSystemMessage("AI is having trouble. Please switch to Live Support.");
+      // Handle "404 Not Found" gracefully in UI
+      if (e.toString().contains("404")) {
+         _addSystemMessage("Error: AI Model deprecated. Please contact support.");
+      } else {
+         _addSystemMessage("AI Error. Please try again or switch to Live Support.");
+      }
     } finally {
       if (mounted) {
         setState(() => _isLoadingAi = false);
@@ -207,8 +209,6 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
 
   Future<void> _performProductSearch(String query) async {
     _addBotMessage("🔍 Searching for '$query'...");
-    
-    // Call your MagentoAPI
     final products = await MagentoAPI().searchProducts(query);
     
     if (products.isEmpty) {
@@ -216,8 +216,6 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
       return;
     }
 
-    // Build HTML Card for products
-    // Note: product:sku is a custom scheme we handle in _handleLinkTap
     String html = "<b>Found these matches:</b><br>";
     for (var p in products.take(3)) {
        html += """
@@ -264,22 +262,18 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
 
   void _toggleLiveSupport() {
     if (_isLiveSupport) {
-      // Switching BACK to AI
-      _endChat(); // Disconnect socket
+      _endChat(); 
       setState(() {
         _isLiveSupport = false;
         _messages.clear();
         _addSystemMessage("Switched back to AI Assistant.");
       });
-      // Re-init AI context if needed
       if (!_aiInitialized) _initGemini();
     } else {
-      // Switching TO Live Support
       setState(() {
         _isLiveSupport = true;
         _messages.clear();
       });
-      // If we already have name, auto-connect
       if (_nameController.text.isNotEmpty) {
         _startChat();
       }
@@ -294,13 +288,8 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
       return;
     }
     FocusScope.of(context).unfocus(); 
-    setState(() {
-      _isNameSubmitted = true;
-    });
-    // If switching modes, clear messages to avoid confusion
-    if (_messages.isEmpty) {
-      setState(() => _messages.clear());
-    }
+    setState(() => _isNameSubmitted = true);
+    if (_messages.isEmpty) setState(() => _messages.clear());
     _connectSocket();
   }
 
@@ -313,7 +302,7 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
     setState(() {
       _isConnected = false;
       _isAssigned = false;
-      _isNameSubmitted = false; // Reset to allow re-entry
+      _isNameSubmitted = false;
       _chatId = null;
       _queuePosition = 0;
       _agentName = null;
@@ -324,7 +313,7 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
     socket = IO.io(_serverUrl, IO.OptionBuilder()
       .setTransports(['websocket'])
       .disableAutoConnect()
-      .setExtraHeaders({'origin': 'https://support-sever.onrender.com'})
+      .setExtraHeaders({'origin': 'https://buynutbolts.com'}) 
       .build()
     );
 
@@ -425,18 +414,16 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
     if (text.isEmpty) return;
     _messageController.clear();
 
-    // 1. Add User Message
     setState(() {
       _messages.add({
         'type': 'chat',
         'content': text,
-        'isUser': true, // User
+        'isUser': true,
         'time': DateTime.now()
       });
     });
     _scrollToBottom();
 
-    // 2. Route Message
     if (_isLiveSupport) {
       _sendLiveMessage(text);
     } else {
@@ -449,7 +436,7 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
       _messages.add({
         'type': 'chat',
         'content': content,
-        'isUser': false, // Bot
+        'isUser': false,
         'time': DateTime.now()
       });
     });
@@ -499,13 +486,11 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
             backgroundColor: Colors.white,
             elevation: 1,
             actions: [
-              // Switch Button
               IconButton(
                 icon: Icon(_isLiveSupport ? Icons.smart_toy : Icons.headset_mic, color: const Color(0xFF00599c)),
                 tooltip: _isLiveSupport ? "Switch to AI" : "Talk to Human",
                 onPressed: _toggleLiveSupport,
               ),
-              // End Chat (Live Only)
               if (_isLiveSupport && _isNameSubmitted)
                 IconButton(
                   icon: const Icon(Icons.logout, color: Colors.red),
@@ -519,11 +504,9 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
   }
 
   Widget _buildBody() {
-    // If Live Support is active BUT name is not submitted, show name screen
     if (_isLiveSupport && !_isNameSubmitted) {
       return _buildWelcomeScreen();
     }
-    // Otherwise show chat interface (AI or Live)
     return _buildChatInterface();
   }
 
@@ -589,7 +572,6 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
   Widget _buildChatInterface() {
     return Column(
       children: [
-        // Live Support Status Banners
         if (_isLiveSupport) ...[
           if (!_isConnected)
             Container(
@@ -608,7 +590,6 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
             ),
         ],
 
-        // Message List
         Expanded(
           child: ListView.builder(
             controller: _scrollController,
@@ -640,7 +621,6 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // RENDER CONTENT
                       isUser
                         ? Text(msg['content'], style: const TextStyle(color: Colors.white, fontSize: 15))
                         : Html(
@@ -666,13 +646,11 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
           ),
         ),
 
-        // Typing Indicators
         if (_isLoadingAi)
            const Padding(padding: EdgeInsets.all(8), child: Text("AI is thinking...", style: TextStyle(color: Colors.grey))),
         if (_isAgentTyping)
            Padding(padding: const EdgeInsets.all(8), child: Text("$_agentName is typing...", style: const TextStyle(color: Colors.grey))),
 
-        // Input Area
         Container(
           padding: const EdgeInsets.all(10),
           decoration: const BoxDecoration(
@@ -685,7 +663,6 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
                 Expanded(
                   child: TextField(
                     controller: _messageController,
-                    // Enable if: (AI is ready) OR (Live is Assigned & Connected)
                     enabled: !_isLiveSupport || (_isAssigned && _isConnected),
                     decoration: InputDecoration(
                       hintText: _isLiveSupport 
@@ -716,25 +693,20 @@ CRITICAL: You have access to TOOLS. Trigger them by outputting ONLY the command:
   }
 
   void _handleLinkTap(String url) async {
-    // 1. Handle "product:sku" links (Internal Navigation)
     if (url.startsWith("product:")) {
       final sku = url.split(":")[1];
-      // Fetch product and navigate
-      // Note: This assumes you have a named route or logic for product details
       try {
         final product = await MagentoAPI().fetchProductBySku(sku);
         if (product != null && mounted) {
            Navigator.pushNamed(context, '/productDetail', arguments: product);
         } else {
-           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Product not found")));
+           if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Product not found")));
         }
       } catch (e) {
         debugPrint("Nav Error: $e");
       }
       return;
     }
-
-    // 2. Handle standard HTTP links
     if (await canLaunchUrl(Uri.parse(url))) {
       await launchUrl(Uri.parse(url));
     }
