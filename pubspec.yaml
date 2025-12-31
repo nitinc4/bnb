@@ -50,7 +50,7 @@ dependencies:
   url_launcher: ^6.2.0
   firebase_core: ^3.0.0
   firebase_messaging: ^15.0.0
-
+  encrypt: ^5.0.3
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
@@ -83,7 +83,7 @@ flutter:
     
     - assets/icons/
     - assets/images/login_bg.png
-    - .env
+  
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

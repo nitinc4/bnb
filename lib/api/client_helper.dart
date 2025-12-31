@@ -1,9 +1,26 @@
+// lib/api/client_helper.dart
 import 'dart:convert';
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
+
+class AppConfig {
+  static String magentoBaseUrl = "https://buynutbolts.com";
+  static String consumerKey = "";
+  static String consumerSecret = "";
+  static String accessToken = "";
+  static String accessTokenSecret = "";
+  static String geminiApiKey = "";
+  static String rfqUrl = "";
+  static String rfqToken = "";
+
+  static bool get isLoaded => consumerKey.isNotEmpty;
+}
 
 // The fixed verification phrase (Must match server)
 const String _verificationPhrase = "BNB_SECURE_ACCESS";
+// Your Vercel Server URL
+const String _serverUrl = "https://secuserv-7w95.vercel.app";
 
 String _getCurrentDateString() {
   final now = DateTime.now();
@@ -13,7 +30,7 @@ String _getCurrentDateString() {
   return '$year$month$day';
 }
 
-String generateSecureHeader() {
+String _generateSecureHeader() {
   final currentDate = _getCurrentDateString();
 
   // 1. Use the Date itself as the Key (Padded to 32 bytes)
@@ -31,40 +48,41 @@ String generateSecureHeader() {
   return '${iv.base64}:${encrypted.base64}';
 }
 
-Future<Map<String, dynamic>> fetchApiKeys(String serverUrl) async {
-  // No shared secret passed here anymore
-  final secureHeader = generateSecureHeader();
-
+Future<void> fetchAndSetConfig() async {
   try {
+    final secureHeader = _generateSecureHeader();
+    
+    debugPrint("Fetching configuration from $_serverUrl...");
+
     final response = await http.get(
-      Uri.parse('$serverUrl/api/get-keys'),
+      Uri.parse('$_serverUrl/api/get-keys'),
       headers: {
         'x-secure-date': secureHeader,
         'Content-Type': 'application/json',
       },
     );
 
-    if (response.statusCode != 200) {
-      final errorData = jsonDecode(response.body);
-      throw Exception(errorData['message'] ?? 'Failed to fetch API keys');
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data['success'] == true) {
+        final keys = data['keys'];
+        
+        AppConfig.magentoBaseUrl = keys['magentoBaseUrl'] ?? "https://buynutbolts.com";
+        AppConfig.consumerKey = keys['consumerKey'] ?? "";
+        AppConfig.consumerSecret = keys['consumerSecret'] ?? "";
+        AppConfig.accessToken = keys['accessToken'] ?? "";
+        AppConfig.accessTokenSecret = keys['accessTokenSecret'] ?? "";
+        AppConfig.geminiApiKey = keys['geminiApiKey'] ?? "";
+        AppConfig.rfqUrl = keys['rfqUrl'] ?? "";
+        AppConfig.rfqToken = keys['rfqToken'] ?? "";
+
+        debugPrint("Configuration loaded successfully.");
+      }
+    } else {
+      debugPrint("Failed to load config: ${response.statusCode} - ${response.body}");
     }
-
-    final data = jsonDecode(response.body);
-    return data['keys'];
-  } catch (error) {
-    print('Error fetching API keys: $error');
-    rethrow;
-  }
-}
-
-void main() async {
-  const serverUrl = 'http://localhost:3000';
-
-  try {
-    print('Fetching keys using Date-Derived Encryption...');
-    final keys = await fetchApiKeys(serverUrl);
-    print('Successfully retrieved API keys: $keys');
-  } catch (error) {
-    print('Failed to retrieve API keys: $error');
+  } catch (e) {
+    debugPrint("Error fetching config: $e");
+    // Ideally handle error (e.g., show retry dialog in UI)
   }
 }

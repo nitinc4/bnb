@@ -3,8 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:dio/dio.dart';
-import 'package:crypto/crypto.dart';
 
 import '../providers/cart_provider.dart';
 import '../api/magento_api.dart';
@@ -23,10 +21,6 @@ class _SplashScreenState extends State<SplashScreen>
   late AnimationController _controller;
   late Animation<double> _animation;
   
-  static const String _configEndpoint =
-      'https://gist.githubusercontent.com/nitinc4/857f9007c5fed4ec2bae8decaf32c9f3/raw';
-  static const String _requiredSignature =
-      'fcc7c54d2cce94f7b62bda253ff061f9473c390b1fb060af316cc3f7f2553b80';
 
   @override
   void initState() {
@@ -37,32 +31,9 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _initializeApp() async {
-    final isSecure = await _verifyEndpointIntegrity();
-    if (!isSecure) return;
     await _loadResourcesAndNavigate();
   }
 
-  Future<bool> _verifyEndpointIntegrity() async {
-    try {
-      final dio = Dio()
-        ..options = BaseOptions(
-          connectTimeout: const Duration(seconds: 5),
-          responseType: ResponseType.plain,
-        );
-
-      final url = '$_configEndpoint?t=${DateTime.now().millisecondsSinceEpoch}';
-      final response = await dio.get(url);
-
-      if (response.statusCode == 200) {
-        final data = response.data.toString().trim();
-        final hash = sha256.convert(utf8.encode(data)).toString();
-        return hash == _requiredSignature;
-      }
-    } catch (_) {
-      return true;
-    }
-    return false;
-  }
 
   Future<void> _loadResourcesAndNavigate() async {
     final api = MagentoAPI();
@@ -70,7 +41,6 @@ class _SplashScreenState extends State<SplashScreen>
 
     try {
       debugPrint("[SplashScreen] Starting Cache Warm-up...");
-      
       
       await api.warmUpHomeData();
       

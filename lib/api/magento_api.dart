@@ -5,11 +5,12 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' hide Category; 
 import 'package:flutter/material.dart' hide Category;   
 import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+// Removed flutter_dotenv import
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; 
 import '../models/magento_models.dart';
 import 'magento_oauth_client.dart'; 
+import 'client_helper.dart'; // Import AppConfig
 
 List<Product> _parseProducts(String responseBody) {
   final data = jsonDecode(responseBody);
@@ -18,7 +19,8 @@ List<Product> _parseProducts(String responseBody) {
 }
 
 class MagentoAPI {
-  final String baseUrl = dotenv.env['MAGENTO_BASE_URL'] ?? "https://buynutbolts.com";
+  // Use AppConfig instead of dotenv
+  final String baseUrl = AppConfig.magentoBaseUrl; 
   late final MagentoOAuthClient _oauthClient;
   
   static const _secureStorage = FlutterSecureStorage();
@@ -29,10 +31,10 @@ class MagentoAPI {
   static Map<String, Category> _detailsCache = {};
   static Map<String, dynamic>? cachedUser; 
 
-  static const String _rfqUrl = "https://rfq.buynutbolts.com/api/rfq_ingest.php";
-  static const String _rfqToken = r"VA8xnbbXSeDYgvbyJrbcFJMbH@Nwk&Sxt3S1&iQL$fhE9PUKpXIdrWwap$K$6jvf";
+  // Removed static const for RFQ as they are now dynamic
+  // static const String _rfqUrl = ...
+  // static const String _rfqToken = ...
 
-  // ... (Existing Excluded Attributes constants remain unchanged) ...
   static const List<String> _excludedAttributeCodes = [
     "ship_bundle_items", "page_layout", "gift_message_available", "tax_class_id",
     "options_container", "custom_layout_update", "custom_design",
@@ -53,20 +55,20 @@ class MagentoAPI {
   ];
 
   MagentoAPI() {
+    // Initialize with keys from AppConfig
     _oauthClient = MagentoOAuthClient(
       baseUrl: "$baseUrl/rest/V1",
-      consumerKey: dotenv.env['CONSUMER_KEY'] ?? '',
-      consumerSecret: dotenv.env['CONSUMER_SECRET'] ?? '',
-      token: dotenv.env['ACCESS_TOKEN'] ?? '',
-      tokenSecret: dotenv.env['ACCESS_TOKEN_SECRET'] ?? '',
+      consumerKey: AppConfig.consumerKey,
+      consumerSecret: AppConfig.consumerSecret,
+      token: AppConfig.accessToken,
+      tokenSecret: AppConfig.accessTokenSecret,
     );
   }
 
   // ---------------------------------------------------------------------------
   // AI TOOLS & RFQ
   // ---------------------------------------------------------------------------
-  
-  // ... (submitRfq and checkOrderStatus remain unchanged) ...
+
   Future<Map<String, dynamic>> submitRfq({
     required String product,
     required String quantity,
@@ -85,11 +87,11 @@ class MagentoAPI {
       };
 
       final response = await http.post(
-        Uri.parse(_rfqUrl),
+        Uri.parse(AppConfig.rfqUrl), // Use dynamic URL
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
-          "Authorization": "Bearer $_rfqToken",
+          "Authorization": "Bearer ${AppConfig.rfqToken}", // Use dynamic Token
           "User-Agent": "BuyNutBoltsApp/1.0"
         },
         body: jsonEncode(payload), 
@@ -116,6 +118,7 @@ class MagentoAPI {
     }
   }
 
+  // ... (Rest of the file remains unchanged from previous versions, including checkOrderStatus, findCategoryByName, etc.)
   Future<Map<String, dynamic>> checkOrderStatus(String orderId, String email) async {
     try {
       String formattedId = orderId.trim();
@@ -151,10 +154,6 @@ class MagentoAPI {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // HELPER METHODS
-  // ---------------------------------------------------------------------------
-
   Category? findCategoryByName(String name) {
     if (name.isEmpty) return null;
     return _findCategoryRecursive(cachedCategories, name);
@@ -173,10 +172,6 @@ class MagentoAPI {
     return null;
   }
 
-  // ---------------------------------------------------------------------------
-  // SEARCH LOGIC (ROBUST + KEYWORDS)
-  // ---------------------------------------------------------------------------
-
   Future<List<Product>> searchProducts(String query) async { 
     return _performSearch(query, pageSize: 20); 
   }
@@ -185,79 +180,43 @@ class MagentoAPI {
     return _performSearch(query, pageSize: 4); 
   }
 
-  /// Performs a robust search:
-  /// 1. Tries "Strict" search (AND logic): Products must match ALL keywords.
-  /// 2. If no results, tries "Loose" search (OR logic): Products matching ANY keyword.
   Future<List<Product>> _performSearch(String query, {required int pageSize}) async {
     final cleanQuery = query.trim();
     if (cleanQuery.isEmpty) return [];
 
-    // 1. Try Strict Search (Keywords ANDed)
-    List<Product> results = await _executeSearchRequest(cleanQuery, pageSize, strict: true);
-
-    // 2. Fallback to Loose Search if strict returned nothing and there are multiple words
-    if (results.isEmpty && cleanQuery.contains(' ')) {
-      debugPrint("Strict search failed, trying loose search for: $cleanQuery");
-      results = await _executeSearchRequest(cleanQuery, pageSize, strict: false);
-    }
-
-    return results;
-  }
-
-  Future<List<Product>> _executeSearchRequest(String query, int pageSize, {bool strict = true}) async {
     try {
-      final Map<String, String> params = {
+      final Map<String, String> queryParams = {
         "searchCriteria[pageSize]": pageSize.toString(),
         "searchCriteria[currentPage]": "1"
       };
 
-      final words = query.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+      final words = cleanQuery.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+      int groupIndex = 0;
       
-      if (strict) {
-        // Strict (AND): Each word gets its own Filter Group.
-        // Within group: Name LIKE word OR SKU LIKE word.
-        // Result must satisfy Group 1 AND Group 2 ...
-        int groupIndex = 0;
-        for (var word in words) {
-          params["searchCriteria[filter_groups][$groupIndex][filters][0][field]"] = "name";
-          params["searchCriteria[filter_groups][$groupIndex][filters][0][value]"] = "%$word%";
-          params["searchCriteria[filter_groups][$groupIndex][filters][0][condition_type]"] = "like";
+      for (var word in words) {
+        queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][field]"] = "name";
+        queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][value]"] = "%$word%";
+        queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][condition_type]"] = "like";
 
-          params["searchCriteria[filter_groups][$groupIndex][filters][1][field]"] = "sku";
-          params["searchCriteria[filter_groups][$groupIndex][filters][1][value]"] = "%$word%";
-          params["searchCriteria[filter_groups][$groupIndex][filters][1][condition_type]"] = "like";
-          
-          groupIndex++;
-        }
-      } else {
-        // Loose (OR): One Filter Group for ALL words.
-        // Result must satisfy (Word1 Name OR Word1 SKU OR Word2 Name ...)
-        int filterIndex = 0;
-        for (var word in words) {
-           params["searchCriteria[filter_groups][0][filters][$filterIndex][field]"] = "name";
-           params["searchCriteria[filter_groups][0][filters][$filterIndex][value]"] = "%$word%";
-           params["searchCriteria[filter_groups][0][filters][$filterIndex][condition_type]"] = "like";
-           filterIndex++;
-           
-           params["searchCriteria[filter_groups][0][filters][$filterIndex][field]"] = "sku";
-           params["searchCriteria[filter_groups][0][filters][$filterIndex][value]"] = "%$word%";
-           params["searchCriteria[filter_groups][0][filters][$filterIndex][condition_type]"] = "like";
-           filterIndex++;
-        }
+        queryParams["searchCriteria[filter_groups][$groupIndex][filters][1][field]"] = "sku";
+        queryParams["searchCriteria[filter_groups][$groupIndex][filters][1][value]"] = "%$word%";
+        queryParams["searchCriteria[filter_groups][$groupIndex][filters][1][condition_type]"] = "like";
+
+        groupIndex++;
       }
 
-      final response = await _oauthClient.get("/products", params: params);
+      final response = await _oauthClient.get("/products", params: queryParams);
       if (response.statusCode == 200) {
         final items = (jsonDecode(response.body)["items"] as List? ?? []);
         return items.map((e) => Product.fromJson(e)).toList();
       }
     } catch (e) {
-      debugPrint("Search Exec Error (strict=$strict): $e");
+      debugPrint("Search Products Error: $e");
     }
     return [];
   }
 
-  // ... (Rest of existing methods: warmUpHomeData, updateProductCache, etc. remain unchanged) ...
+  // ... (Rest of the standard helper methods fetchCategories, fetchProducts, etc. are identical to previous file)
   Future<void> warmUpHomeData() async {
     final categories = await fetchCategories();
     final List<Category> targetCategories = [];
