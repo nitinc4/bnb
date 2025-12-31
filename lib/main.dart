@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:provider/provider.dart'; // Import Provider
+import 'package:provider/provider.dart'; 
+import 'package:firebase_core/firebase_core.dart'; // ADDED
+import 'package:firebase_messaging/firebase_messaging.dart'; // ADDED
 import 'screens/support_screen.dart';
 import 'providers/cart_provider.dart';
 import 'models/magento_models.dart';
@@ -14,9 +16,38 @@ import 'screens/cart_screen.dart';
 import 'screens/order_success_screen.dart';
 import 'screens/categories_screen.dart';
 
+// Background handler for Firebase messages
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  debugPrint("Handling a background message: ${message.messageId}");
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: ".env");
+
+  // Initialize Firebase
+  try {
+    await Firebase.initializeApp();
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    
+    // Request Notification Permissions
+    FirebaseMessaging messaging = FirebaseMessaging.instance;
+    NotificationSettings settings = await messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    debugPrint('User granted permission: ${settings.authorizationStatus}');
+    
+    // Subscribe to topics
+    await messaging.subscribeToTopic('offers');
+    await messaging.subscribeToTopic('orders');
+    
+  } catch (e) {
+    debugPrint("Firebase init failed: $e");
+  }
 
   runApp(
     ChangeNotifierProvider(

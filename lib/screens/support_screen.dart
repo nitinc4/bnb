@@ -49,6 +49,7 @@ class _SupportScreenState extends State<SupportScreen> {
   bool _isConnected = false;
   bool _isAssigned = false;
   bool _isNameSubmitted = false;
+  bool _noAgentsAvailable = false; // NEW FLAG
   int _queuePosition = 0;
   String? _chatId;
   String? _agentName;
@@ -291,14 +292,20 @@ TOOLS (Trigger by outputting ONLY the command):
   void _toggleLiveSupport() {
     if (_isLiveSupport) {
       _endChat(); 
-      setState(() { _isLiveSupport = false; _messages.clear(); _addSystemMessage("Switched back to AI Assistant."); });
+      setState(() { 
+        _isLiveSupport = false; 
+        _messages.clear(); 
+        _addSystemMessage("Switched back to AI Assistant."); 
+        _noAgentsAvailable = false;
+        _queuePosition = 0;
+      });
       if (!_aiInitialized) _initGemini();
     } else {
       if (_flowState != null) {
         _addBotMessage("You're in the middle of another flow. Type 'exit' to cancel it first.");
         return;
       }
-      setState(() { _isLiveSupport = true; _messages.clear(); });
+      setState(() { _isLiveSupport = true; _messages.clear(); _noAgentsAvailable = false; });
       if (_nameController.text.isNotEmpty) _startChat();
     }
   }
@@ -316,7 +323,7 @@ TOOLS (Trigger by outputting ONLY the command):
     if (_isConnected) socket.disconnect();
     setState(() {
       _isConnected = false; _isAssigned = false; _isNameSubmitted = false;
-      _chatId = null; _queuePosition = 0; _agentName = null;
+      _chatId = null; _queuePosition = 0; _agentName = null; _noAgentsAvailable = false;
     });
   }
 
@@ -324,15 +331,37 @@ TOOLS (Trigger by outputting ONLY the command):
     socket = IO.io(_serverUrl, IO.OptionBuilder().setTransports(['websocket']).disableAutoConnect().setExtraHeaders({'origin': 'https://buynutbolts.com'}).build());
     socket.connect();
     socket.onConnect((_) {
-      if (mounted) setState(() => _isConnected = true);
+      if (mounted) setState(() { _isConnected = true; _noAgentsAvailable = false; });
       socket.emit('customer_joined', { 'customerId': _customerId, 'customerName': _nameController.text.trim() });
     });
     socket.onDisconnect((_) { if (mounted) setState(() => _isConnected = false); });
-    socket.on('queue_update', (data) { if (mounted) setState(() { _queuePosition = data['position'] ?? 0; _isAssigned = false; }); });
+    
+    // UPDATED QUEUE LOGIC
+    socket.on('queue_update', (data) { 
+      if (mounted) setState(() { 
+        _queuePosition = data['position'] ?? 0; 
+        _isAssigned = false; 
+        _noAgentsAvailable = false;
+      }); 
+    });
+
+    // NEW EVENT: NO AGENTS AVAILABLE
+    socket.on('no_agents', (_) {
+      if (mounted) setState(() {
+        _noAgentsAvailable = true;
+        _isAssigned = false;
+        _queuePosition = 0;
+      });
+    });
+
     socket.on('assign_agent', (data) {
       if (mounted) {
         setState(() {
-          _isAssigned = true; _chatId = data['chatId']; _agentName = data['agentName'] ?? "Support Agent"; _queuePosition = 0;
+          _isAssigned = true; 
+          _chatId = data['chatId']; 
+          _agentName = data['agentName'] ?? "Support Agent"; 
+          _queuePosition = 0;
+          _noAgentsAvailable = false;
           _messages.add({ 'type': 'system', 'content': 'You are now connected with $_agentName.', 'time': DateTime.now() });
         });
       }
@@ -462,10 +491,28 @@ TOOLS (Trigger by outputting ONLY the command):
         if (_isLiveSupport) ...[
           if (widget.isEmbedded)
             Container(color: Colors.grey[200], padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [const Text("Live Support Active", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)), const Spacer(), TextButton.icon(onPressed: _toggleLiveSupport, icon: const Icon(Icons.logout, color: Colors.red, size: 16), label: const Text("Exit", style: TextStyle(color: Colors.red)))])),
+          
           if (!_isConnected)
             Container(width: double.infinity, color: Colors.red[100], padding: const EdgeInsets.all(8), child: const Text("Connecting to server...", textAlign: TextAlign.center, style: TextStyle(color: Colors.red)))
+          
+          else if (_noAgentsAvailable)
+            Container(width: double.infinity, color: Colors.orange[100], padding: const EdgeInsets.all(12), child: const Column(children: [Text("No agents available currently.", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)), Text("Please leave a message or try again later.", style: TextStyle(color: Colors.deepOrange, fontSize: 12))]))
+          
           else if (!_isAssigned)
-            Container(width: double.infinity, color: Colors.orange[100], padding: const EdgeInsets.all(12), child: Column(children: [const Text("Waiting for an agent...", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)), if (_queuePosition > 0) Text("Position in queue: $_queuePosition", style: const TextStyle(color: Colors.deepOrange))])),
+            Container(
+              width: double.infinity, 
+              color: Colors.blue[50], 
+              padding: const EdgeInsets.all(12), 
+              child: Column(
+                children: [
+                  const Text("Waiting for an agent...", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)), 
+                  if (_queuePosition > 0) 
+                    Text("Your position in queue: #$_queuePosition", style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16))
+                  else 
+                    const Text("You are next in line.", style: TextStyle(color: Colors.blue))
+                ]
+              )
+            ),
         ],
         Expanded(
           child: ListView.builder(
@@ -539,7 +586,28 @@ TOOLS (Trigger by outputting ONLY the command):
         Container(
           padding: const EdgeInsets.all(10), decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Colors.black12))),
           child: SafeArea(
-            child: Row(children: [Expanded(child: TextField(controller: _messageController, enabled: !_isLiveSupport || (_isAssigned && _isConnected), decoration: InputDecoration(hintText: _isLiveSupport ? (_isAssigned ? "Type a message..." : "Waiting...") : (_flowState != null ? "Type your answer..." : "Ask AI about products..."), border: OutlineInputBorder(borderRadius: BorderRadius.circular(25), borderSide: BorderSide.none), filled: true, fillColor: Colors.grey[100], contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10)), onSubmitted: (_) => _sendMessage())), const SizedBox(width: 8), CircleAvatar(backgroundColor: (!_isLiveSupport || (_isAssigned && _isConnected)) ? const Color(0xFF00599c) : Colors.grey, child: IconButton(icon: const Icon(Icons.send, color: Colors.white, size: 20), onPressed: (!_isLiveSupport || (_isAssigned && _isConnected)) ? _sendMessage : null))]),
+            child: Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: _messageController, 
+                  enabled: !_isLiveSupport || (_isAssigned && _isConnected) || _noAgentsAvailable, 
+                  decoration: InputDecoration(
+                    hintText: _isLiveSupport ? ((_isAssigned || _noAgentsAvailable) ? "Type a message..." : "Waiting...") : (_flowState != null ? "Type your answer..." : "Ask AI about products..."), 
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(25), borderSide: BorderSide.none), 
+                    filled: true, fillColor: Colors.grey[100], contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10)
+                  ), 
+                  onSubmitted: (_) => _sendMessage()
+                )
+              ), 
+              const SizedBox(width: 8), 
+              CircleAvatar(
+                backgroundColor: (!_isLiveSupport || (_isAssigned && _isConnected) || _noAgentsAvailable) ? const Color(0xFF00599c) : Colors.grey, 
+                child: IconButton(
+                  icon: const Icon(Icons.send, color: Colors.white, size: 20), 
+                  onPressed: (!_isLiveSupport || (_isAssigned && _isConnected) || _noAgentsAvailable) ? _sendMessage : null
+                )
+              )
+            ]),
           ),
         ),
       ],
@@ -558,7 +626,6 @@ TOOLS (Trigger by outputting ONLY the command):
     }
     if (url.startsWith("category:")) {
       final catName = url.split(":")[1];
-      // [CRITICAL] This requires the recursive search fix in magento_api.dart
       final category = MagentoAPI().findCategoryByName(catName);
       if (category != null && mounted) {
         Navigator.push(context, MaterialPageRoute(builder: (context) => CategoryDetailScreen(category: category)));

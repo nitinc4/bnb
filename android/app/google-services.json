@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "115018012968",
+    "project_id": "bnb-app-1cf24",
+    "storage_bucket": "bnb-app-1cf24.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:115018012968:android:3323285fc8fa36e5d5981d",
+        "android_client_info": {
+          "package_name": "com.example.bnb"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBbYvLLZ40k05OvlB3sDkyS81Aug00VO6Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
