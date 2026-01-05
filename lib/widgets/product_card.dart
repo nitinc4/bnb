@@ -23,7 +23,7 @@ class ProductCard extends StatelessWidget {
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
-            blurRadius: 4, // Slight reduction
+            blurRadius: 4, 
             offset: const Offset(0, 2),
           ),
         ],
@@ -31,14 +31,15 @@ class ProductCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
+          // [CHANGE] Used AspectRatio to force square image (1:1 ratio)
+          AspectRatio(
+            aspectRatio: 1.0,
             child: ClipRRect(
               borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
               child: CachedNetworkImage(
                 imageUrl: imageUrl,
                 fit: BoxFit.cover,
                 width: double.infinity,
-                // [OPTIMIZATION] Downsample to 200px (approx 150px * density)
                 memCacheWidth: 200, 
                 placeholder: (context, url) => Container(color: Colors.grey.shade100),
                 errorWidget: (context, url, error) => Container(
@@ -48,24 +49,29 @@ class ProductCard extends StatelessWidget {
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(6), // Reduced padding for smaller card
-            child: Text(
-              name,
-              maxLines: 2, // Allow 2 lines for smaller width
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          // [CHANGE] Use Expanded to let text fill the rest of the vertical space
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(8), // Slightly increased padding for better spacing
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween, // Distribute space
+                children: [
+                  Text(
+                    name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                  Text(
+                    "₹$price",
+                    style: const TextStyle(
+                        color: Color(0xFF00599c), fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                ],
+              ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            child: Text(
-              "₹$price",
-              style: const TextStyle(
-                  color: Color(0xFF00599c), fontWeight: FontWeight.bold, fontSize: 13),
-            ),
-          ),
-          const SizedBox(height: 4),
         ],
       ),
     );

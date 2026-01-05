@@ -22,7 +22,7 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
 
   // Product List State
   final List<Product> _products = [];
-  bool _isLoading = false; // Unified loading state
+  bool _isLoading = false; 
   
   // Pagination State
   int _currentPage = 1;
@@ -59,7 +59,6 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
   }
 
   void _onScroll() {
-    // Trigger load more when user is 200 pixels from bottom
     if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
       if (!_isLoading && _hasMore) {
         _fetchProducts();
@@ -81,7 +80,6 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
   Future<void> _fetchProducts({bool refresh = false}) async {
     if (_isLoading) return;
 
-    // Reset logic if this is a refresh (filter/sort change or pull-to-refresh)
     if (refresh) {
       setState(() {
         _products.clear();
@@ -108,16 +106,13 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
             _hasMore = false;
           } else {
             _products.addAll(newProducts);
-            _currentPage++; // Increment page for next fetch
-            
-            // If less than pageSize returned, we've likely reached the end
+            _currentPage++; 
             if (newProducts.length < _pageSize) {
               _hasMore = false;
             }
           }
         });
 
-        // Fetch attributes for filters if this is the first batch and we haven't yet
         if (_filterAttributes.isEmpty && _products.isNotEmpty) {
           final attributeSetId = _products.first.attributeSetId;
           if (attributeSetId > 0) {
@@ -365,26 +360,22 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
   }
 
   Widget _buildProductGrid() {
-    // Show shimmer only on initial load (when list is empty)
     if (_products.isEmpty && _isLoading) return BNBShimmer.productGrid();
-    
-    // Show empty state
     if (_products.isEmpty && !_isLoading) return const Center(child: Text("No products found"));
 
     return GridView.builder(
       controller: _scrollController,
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(12),
-      // Add one to item count if we have more to load (for the spinner)
       itemCount: _products.length + (_hasMore ? 1 : 0),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3, 
+      // [CHANGE] Scalable Grid
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 135,
         crossAxisSpacing: 8,
         mainAxisSpacing: 8,
         childAspectRatio: 0.65
       ),
       itemBuilder: (context, index) {
-        // If we are at the end and have more, show spinner
         if (index == _products.length) {
           return const Center(child: Padding(
             padding: EdgeInsets.all(8.0),

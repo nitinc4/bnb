@@ -50,7 +50,6 @@ class _AllProductsScreenState extends State<AllProductsScreen> {
   Future<void> _fetchProducts({bool refresh = false}) async {
     if (_isLoading) return;
     
-    // If refreshing (e.g., applying filter/sort), reset list and page
     if (refresh) {
       setState(() {
         _products.clear();
@@ -80,7 +79,6 @@ class _AllProductsScreenState extends State<AllProductsScreen> {
           }
         });
 
-        // Try to fetch attributes for filtering if we have products but no filters yet
         if (_filterAttributes.isEmpty && _products.isNotEmpty) {
            final attributeSetId = _products.first.attributeSetId;
            if (attributeSetId > 0) {
@@ -258,8 +256,9 @@ class _AllProductsScreenState extends State<AllProductsScreen> {
               controller: _scrollController,
               padding: const EdgeInsets.all(8),
               itemCount: _products.length + (_hasMore ? 1 : 0),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3, 
+              // [CHANGE] Use MaxCrossAxisExtent for scalable grid
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 135, // Fits ~3 cols on phones, more on tablets
                 crossAxisSpacing: 8, 
                 mainAxisSpacing: 8, 
                 childAspectRatio: 0.65, 
