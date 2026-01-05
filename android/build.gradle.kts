@@ -1,3 +1,4 @@
+// android/build.gradle.kts
 allprojects {
     repositories {
         google()
@@ -18,4 +19,15 @@ subprojects {
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
+}
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // [NEW] Add Google Services Classpath
+        classpath("com.google.gms:google-services:4.4.1")
+    }
 }

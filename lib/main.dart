@@ -1,10 +1,12 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart'; 
+import 'package:firebase_core/firebase_core.dart'; // [NEW]
 import 'screens/support_screen.dart';
 import 'providers/cart_provider.dart';
 import 'models/magento_models.dart';
-import 'api/client_helper.dart'; // Import the helper
+import 'api/client_helper.dart'; 
+import 'api/firebase_api.dart'; // [NEW]
 
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
@@ -17,6 +19,12 @@ import 'screens/categories_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // [NEW] Initialize Firebase
+  await Firebase.initializeApp();
+  
+  // [NEW] Initialize Notifications
+  await FirebaseApi().initNotifications();
   
   // Fetch keys from secure server instead of dotenv
   await fetchAndSetConfig();
@@ -35,7 +43,6 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Basic check to see if keys loaded, otherwise app might fail on API calls.
-    // In production, you might want a specific "Error/Retry" screen if !AppConfig.isLoaded
     
     return MaterialApp(
       title: 'BNB Store',

@@ -5,7 +5,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' hide Category; 
 import 'package:flutter/material.dart' hide Category;   
 import 'package:http/http.dart' as http;
-// Removed flutter_dotenv import
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; 
 import '../models/magento_models.dart';
@@ -30,10 +29,6 @@ class MagentoAPI {
   static Map<int, List<Product>> categoryProductsCache = {}; 
   static Map<String, Category> _detailsCache = {};
   static Map<String, dynamic>? cachedUser; 
-
-  // Removed static const for RFQ as they are now dynamic
-  // static const String _rfqUrl = ...
-  // static const String _rfqToken = ...
 
   static const List<String> _excludedAttributeCodes = [
     "ship_bundle_items", "page_layout", "gift_message_available", "tax_class_id",
@@ -66,6 +61,38 @@ class MagentoAPI {
   }
 
   // ---------------------------------------------------------------------------
+  // [NEW] FIREBASE NOTIFICATIONS SUPPORT
+  // ---------------------------------------------------------------------------
+
+  Future<void> registerDeviceToken(String email, String fcmToken) async {
+    try {
+      // NOTE: Ensure your Magento backend has this endpoint or a similar Logic
+      // to store 'email' and 'device_token' in a custom table.
+      final response = await http.post(
+        Uri.parse("$baseUrl/rest/V1/notifications/register"), 
+        headers: {
+          "Content-Type": "application/json",
+          // Use integration token or customer token depending on your endpoint security
+          "Authorization": "Bearer ${AppConfig.accessToken}", 
+        },
+        body: jsonEncode({
+          "email": email,
+          "device_token": fcmToken,
+          "platform": defaultTargetPlatform == TargetPlatform.android ? "android" : "ios",
+        }),
+      );
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        debugPrint("FCM Token Registered Successfully for $email");
+      } else {
+        debugPrint("Failed to register FCM Token: ${response.body}");
+      }
+    } catch (e) {
+      debugPrint("Error registering FCM token: $e");
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // AI TOOLS & RFQ
   // ---------------------------------------------------------------------------
 
@@ -87,11 +114,11 @@ class MagentoAPI {
       };
 
       final response = await http.post(
-        Uri.parse(AppConfig.rfqUrl), // Use dynamic URL
+        Uri.parse(AppConfig.rfqUrl), 
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
-          "Authorization": "Bearer ${AppConfig.rfqToken}", // Use dynamic Token
+          "Authorization": "Bearer ${AppConfig.rfqToken}",
           "User-Agent": "BuyNutBoltsApp/1.0"
         },
         body: jsonEncode(payload), 
@@ -118,7 +145,6 @@ class MagentoAPI {
     }
   }
 
-  // ... (Rest of the file remains unchanged from previous versions, including checkOrderStatus, findCategoryByName, etc.)
   Future<Map<String, dynamic>> checkOrderStatus(String orderId, String email) async {
     try {
       String formattedId = orderId.trim();
@@ -216,7 +242,6 @@ class MagentoAPI {
     return [];
   }
 
-  // ... (Rest of the standard helper methods fetchCategories, fetchProducts, etc. are identical to previous file)
   Future<void> warmUpHomeData() async {
     final categories = await fetchCategories();
     final List<Category> targetCategories = [];

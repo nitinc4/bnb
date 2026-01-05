@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // [SECURITY]
 import '../api/magento_api.dart';
+import '../api/firebase_api.dart'; // [NEW]
 import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -50,6 +51,9 @@ class _LoginScreenState extends State<LoginScreen> {
       // [SECURITY] Save token securely
       await _storage.write(key: 'customer_token', value: token);
       
+      // [NEW] Sync FCM Token with Server
+      await FirebaseApi().syncTokenWithServer(email);
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('has_logged_in', true);
       await prefs.setBool('is_guest', false);
