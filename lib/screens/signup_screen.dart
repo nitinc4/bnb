@@ -1,3 +1,4 @@
+// lib/screens/signup_screen.dart
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../api/magento_api.dart';
@@ -16,6 +17,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final _passwordController = TextEditingController();
   
   bool _isLoading = false;
+  bool _obscurePassword = true; // [CHANGE] Added State
 
   Future<void> _handleSignup() async {
     if (_firstNameController.text.isEmpty || 
@@ -105,7 +107,22 @@ class _SignupScreenState extends State<SignupScreen> {
                         const SizedBox(height: 12),
                         _buildTextField("Email", _emailController, Icons.email),
                         const SizedBox(height: 12),
-                        _buildTextField("Password", _passwordController, Icons.lock, isPassword: true),
+                        // [CHANGE] Password Field with Toggle
+                        TextField(
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
+                          decoration: InputDecoration(
+                            labelText: "Password",
+                            prefixIcon: const Icon(Icons.lock, color: Color(0xFF00599c)),
+                            suffixIcon: IconButton(
+                              icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                            ),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            filled: true,
+                            fillColor: Colors.white,
+                          ),
+                        ),
                         const SizedBox(height: 24),
 
                         SizedBox(
@@ -136,10 +153,9 @@ class _SignupScreenState extends State<SignupScreen> {
     );
   }
 
-  Widget _buildTextField(String hint, TextEditingController controller, IconData icon, {bool isPassword = false}) {
+  Widget _buildTextField(String hint, TextEditingController controller, IconData icon) {
     return TextField(
       controller: controller,
-      obscureText: isPassword,
       decoration: InputDecoration(
         labelText: hint,
         prefixIcon: Icon(icon, color: const Color(0xFF00599c)),

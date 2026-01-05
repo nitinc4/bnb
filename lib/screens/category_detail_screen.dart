@@ -44,25 +44,17 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
     }
   }
 
-  // ─────────────────────────────────────────────
-  // SUB-CATEGORY ENRICHMENT
-  // ─────────────────────────────────────────────
   Future<void> _enrichSubCategories() async {
     setState(() => _isLoadingSubCats = true);
-
     try {
       if (_subCategories.isNotEmpty && _subCategories.first.imageUrl == null) {
         final enriched = await _api.enrichCategories(_subCategories);
         if (mounted) _subCategories = enriched;
       }
     } catch (_) {}
-
     if (mounted) setState(() => _isLoadingSubCats = false);
   }
 
-  // ─────────────────────────────────────────────
-  // PRODUCT FETCH
-  // ─────────────────────────────────────────────
   Future<void> _fetchProducts() async {
     setState(() => _isLoadingProducts = true);
 
@@ -93,19 +85,14 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
     List<Product> loadedProducts,
   ) async {
     final allAttrs = await _api.fetchAttributesBySet(attributeSetId);
-
     final relevantAttrs = allAttrs.where((attr) {
       return loadedProducts.any((product) =>
           product.customAttributes.containsKey(attr.code) &&
           product.customAttributes[attr.code] != null);
     }).toList();
-
     if (mounted) setState(() => _filterAttributes = relevantAttrs);
   }
 
-  // ─────────────────────────────────────────────
-  // REFRESH
-  // ─────────────────────────────────────────────
   Future<void> _onRefresh() async {
     if (_subCategories.isNotEmpty) {
       await _enrichSubCategories();
@@ -114,16 +101,11 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
     }
   }
 
-  // ─────────────────────────────────────────────
-  // FILTER UI
-  // ─────────────────────────────────────────────
   void _showFilterDialog() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
@@ -140,11 +122,7 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
-                            "Filter Products",
-                            style: TextStyle(
-                                fontSize: 18, fontWeight: FontWeight.bold),
-                          ),
+                          const Text("Filter Products", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                           TextButton(
                             onPressed: () {
                               setState(() => _activeFilters.clear());
@@ -163,9 +141,7 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
                         itemBuilder: (context, index) {
                           final attr = _filterAttributes[index];
                           return ExpansionTile(
-                            title: Text(attr.label,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w600)),
+                            title: Text(attr.label, style: const TextStyle(fontWeight: FontWeight.w600)),
                             children: attr.options.map((option) {
                               return RadioListTile<String>(
                                 title: Text(option.label),
@@ -173,11 +149,7 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
                                 groupValue: _activeFilters[attr.code],
                                 activeColor: const Color(0xFF00599c),
                                 onChanged: (val) {
-                                  setState(() {
-                                    if (val != null) {
-                                      _activeFilters[attr.code] = val;
-                                    }
-                                  });
+                                  setState(() { if (val != null) _activeFilters[attr.code] = val; });
                                   setModalState(() {});
                                 },
                               );
@@ -192,17 +164,12 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
                         width: double.infinity,
                         height: 50,
                         child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                              backgroundColor:
-                                  const Color(0xFF00599c)),
+                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c)),
                           onPressed: () {
                             Navigator.pop(context);
                             _fetchProducts();
                           },
-                          child: const Text(
-                            "Apply Filters",
-                            style: TextStyle(color: Colors.white),
-                          ),
+                          child: const Text("Apply Filters", style: TextStyle(color: Colors.white)),
                         ),
                       ),
                     ),
@@ -216,23 +183,17 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
     );
   }
 
-  // ─────────────────────────────────────────────
-  // SORT UI
-  // ─────────────────────────────────────────────
   void _showSortDialog() {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) {
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Padding(
               padding: EdgeInsets.all(16),
-              child: Text("Sort By",
-                  style:
-                      TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              child: Text("Sort By", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ),
             _buildSortOption("Relevance", null, null),
             _buildSortOption("Price: Low to High", "price", "ASC"),
@@ -248,31 +209,17 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
 
   Widget _buildSortOption(String label, String? field, String? dir) {
     final bool isSelected = _sortLabel == label;
-
     return ListTile(
-      leading: Icon(
-        isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
-        color: isSelected ? const Color(0xFF00599c) : Colors.grey,
-      ),
-      title: Text(label,
-          style: TextStyle(
-              fontWeight:
-                  isSelected ? FontWeight.bold : FontWeight.normal)),
+      leading: Icon(isSelected ? Icons.check_circle : Icons.radio_button_unchecked, color: isSelected ? const Color(0xFF00599c) : Colors.grey),
+      title: Text(label, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
       onTap: () {
-        setState(() {
-          _sortField = field;
-          _sortDirection = dir;
-          _sortLabel = label;
-        });
+        setState(() { _sortField = field; _sortDirection = dir; _sortLabel = label; });
         Navigator.pop(context);
         _fetchProducts();
       },
     );
   }
 
-  // ─────────────────────────────────────────────
-  // UI
-  // ─────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final bool hasSubCategories = widget.category.children.isNotEmpty;
@@ -288,17 +235,13 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
           if (!hasSubCategories) ...[
             IconButton(icon: const Icon(Icons.sort), onPressed: _showSortDialog),
             if (_filterAttributes.isNotEmpty)
-              IconButton(
-                  icon: const Icon(Icons.filter_list),
-                  onPressed: _showFilterDialog),
+              IconButton(icon: const Icon(Icons.filter_list), onPressed: _showFilterDialog),
           ],
         ],
       ),
       body: RefreshIndicator(
         onRefresh: _onRefresh,
-        child: hasSubCategories
-            ? _buildSubCategoryGrid()
-            : _buildProductGrid(),
+        child: hasSubCategories ? _buildSubCategoryGrid() : _buildProductGrid(),
       ),
     );
   }
@@ -309,30 +252,57 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
     return GridView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(16),
-      gridDelegate:
-          const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 0.85),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+        childAspectRatio: 0.85
+      ),
       itemCount: _subCategories.length,
       itemBuilder: (context, index) {
         final cat = _subCategories[index];
         return GestureDetector(
           onTap: () => Navigator.push(
             context,
-            MaterialPageRoute(
-                builder: (_) => CategoryDetailScreen(category: cat)),
+            MaterialPageRoute(builder: (_) => CategoryDetailScreen(category: cat)),
           ),
-          child: Column(
-            children: [
-              Expanded(
-                child: cat.imageUrl != null
-                    ? Image.network(cat.imageUrl!)
-                    : Image.asset("assets/icons/placeholder.png"),
-              ),
-              Text(cat.name, textAlign: TextAlign.center),
-            ],
+          // [FIX] Added Container decoration to match Categories Screen
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                )
+              ],
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: cat.imageUrl != null
+                        ? Image.network(cat.imageUrl!, fit: BoxFit.contain)
+                        : Image.asset("assets/icons/placeholder.png"),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12.0, left: 8, right: 8),
+                  child: Text(
+                    cat.name, 
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Color(0xFF00599c),
+                      fontWeight: FontWeight.w600
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -347,18 +317,16 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(12),
       itemCount: _products.length,
-      gridDelegate:
-          const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: 0.7),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3, // [NOTE] Kept consistent with AllProducts (3 columns)
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+        childAspectRatio: 0.65
+      ),
       itemBuilder: (context, index) {
         final product = _products[index];
         return GestureDetector(
-          onTap: () => Navigator.pushNamed(
-              context, '/productDetail',
-              arguments: product),
+          onTap: () => Navigator.pushNamed(context, '/productDetail', arguments: product),
           child: ProductCard(
             name: product.name,
             price: product.price.toStringAsFixed(2),

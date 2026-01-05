@@ -9,7 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; 
 import '../models/magento_models.dart';
 import 'magento_oauth_client.dart'; 
-import 'client_helper.dart'; // Import AppConfig
+import 'client_helper.dart'; 
 
 List<Product> _parseProducts(String responseBody) {
   final data = jsonDecode(responseBody);
@@ -18,7 +18,6 @@ List<Product> _parseProducts(String responseBody) {
 }
 
 class MagentoAPI {
-  // Use AppConfig instead of dotenv
   final String baseUrl = AppConfig.magentoBaseUrl; 
   late final MagentoOAuthClient _oauthClient;
   
@@ -50,7 +49,6 @@ class MagentoAPI {
   ];
 
   MagentoAPI() {
-    // Initialize with keys from AppConfig
     _oauthClient = MagentoOAuthClient(
       baseUrl: "$baseUrl/rest/V1",
       consumerKey: AppConfig.consumerKey,
@@ -60,19 +58,75 @@ class MagentoAPI {
     );
   }
 
+  // --- PASSWORD RESET ---
+  Future<bool> initiatePasswordReset(String email) async {
+    try {
+      // Standard Magento 2 REST API for password reset
+      final response = await http.put(
+        Uri.parse("$baseUrl/rest/V1/customers/password"),
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer ${AppConfig.accessToken}" // Integration token
+        },
+        body: jsonEncode({
+          "email": email,
+          "template": "email_reset", // Standard Magento template
+          "websiteId": 1 
+        }),
+      );
+      
+      // 200 OK or 202 Accepted usually means success
+      return response.statusCode >= 200 && response.statusCode < 300;
+    } catch (e) {
+      debugPrint("Password Reset Error: $e");
+      return false;
+    }
+  }
+
+  // --- SUPPORT FALLBACK EMAIL ---
+  Future<void> sendSupportFallbackEmail({
+    required String name,
+    required String email,
+    required String phone,
+    String? message
+  }) async {
+    try {
+      // Reusing RFQ logic or a dedicated contact endpoint
+      // Assuming a generic contact/inquiry endpoint exists or using RFQ as a proxy
+      final payload = {
+        'name': name,
+        'email': email,
+        'mobile': phone,
+        'comment': "Live Support Failed to Initialize. Customer attempting to connect.\n${message ?? ''}",
+        'product': 'Support Inquiry', // Placeholder for RFQ fields
+        'quantity': 1,
+        'source': 'app_support_fallback'
+      };
+
+      await http.post(
+        Uri.parse(AppConfig.rfqUrl), // Using RFQ endpoint as generic mailer if available
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer ${AppConfig.rfqToken}",
+        },
+        body: jsonEncode(payload),
+      );
+      debugPrint("Support Fallback Email Sent for $email");
+    } catch (e) {
+      debugPrint("Failed to send support fallback email: $e");
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // [NEW] FIREBASE NOTIFICATIONS SUPPORT
   // ---------------------------------------------------------------------------
 
   Future<void> registerDeviceToken(String email, String fcmToken) async {
     try {
-      // NOTE: Ensure your Magento backend has this endpoint or a similar Logic
-      // to store 'email' and 'device_token' in a custom table.
       final response = await http.post(
         Uri.parse("$baseUrl/rest/V1/notifications/register"), 
         headers: {
           "Content-Type": "application/json",
-          // Use integration token or customer token depending on your endpoint security
           "Authorization": "Bearer ${AppConfig.accessToken}", 
         },
         body: jsonEncode({

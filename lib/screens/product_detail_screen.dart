@@ -22,11 +22,19 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   Map<String, String> _specs = {};
   bool _isLoadingSpecs = false;
 
+  final TextEditingController _qtyController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     _currentProduct = widget.product;
     _fetchFullDetails();
+  }
+
+  @override
+  void dispose() {
+    _qtyController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchFullDetails() async {
@@ -124,10 +132,35 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     );
   }
 
+  void _confirmRemove(BuildContext context, CartProvider cart, CartItem item) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Remove Item"),
+        content: Text("Remove ${_currentProduct.name} from cart?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              cart.removeFromCart(item);
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text("Remove"),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      resizeToAvoidBottomInset: true, // Allows the body to resize when keyboard opens
       appBar: AppBar(
         title: Text(_currentProduct.name, style: const TextStyle(fontSize: 16)),
         actions: [
@@ -145,212 +178,257 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           )
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _onRefresh,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                height: 300, width: double.infinity,
-                child: _currentProduct.imageUrl.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: _currentProduct.imageUrl,
-                      fit: BoxFit.contain,
-                      placeholder: (context, url) => Container(color: Colors.grey.shade100),
-                      errorWidget: (context, url, error) => const Icon(Icons.broken_image),
-                    )
-                  : Container(color: Colors.grey.shade100, child: const Icon(Icons.image, size: 50, color: Colors.grey)),
-              ),
-
-              Padding(
-                padding: const EdgeInsets.all(16.0),
+      // [CHANGE] Use Column layout so the bottom bar pushes up with the keyboard
+      body: Column(
+        children: [
+          // Scrollable Content
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _onRefresh,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(_currentProduct.name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-                    Text("SKU: ${_currentProduct.sku}", style: TextStyle(color: Colors.grey.shade600)),
-                    
-                    const SizedBox(height: 16),
-                    const Divider(),
-                    const SizedBox(height: 16),
-
-                    const Text("Description", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    const SizedBox(height: 8),
-                    if (_isLoadingDetails) 
-                      const LinearProgressIndicator(color: Color(0xFF00599c))
-                    else
-                      Text(_currentProduct.description.isNotEmpty ? _currentProduct.description : "No description available.", style: const TextStyle(color: Colors.black54, height: 1.5)),
-
-                    const SizedBox(height: 24),
-                    const Divider(),
-                    const SizedBox(height: 16),
-
-                    if (_currentProduct.tierPrices.isNotEmpty) ...[
-                      const Text("Buy More, Save More", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF00599c))),
-                      const SizedBox(height: 8),
-                      Container(
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey.shade300),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Column(
-                          children: [
+                    SizedBox(
+                      height: 300, width: double.infinity,
+                      child: _currentProduct.imageUrl.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: _currentProduct.imageUrl,
+                            fit: BoxFit.contain,
+                            placeholder: (context, url) => Container(color: Colors.grey.shade100),
+                            errorWidget: (context, url, error) => const Icon(Icons.broken_image),
+                          )
+                        : Container(color: Colors.grey.shade100, child: const Icon(Icons.image, size: 50, color: Colors.grey)),
+                    ),
+      
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_currentProduct.name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 8),
+                          Text("SKU: ${_currentProduct.sku}", style: TextStyle(color: Colors.grey.shade600)),
+                          
+                          const SizedBox(height: 16),
+                          const Divider(),
+                          const SizedBox(height: 16),
+      
+                          const Text("Description", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          const SizedBox(height: 8),
+                          if (_isLoadingDetails) 
+                            const LinearProgressIndicator(color: Color(0xFF00599c))
+                          else
+                            Text(_currentProduct.description.isNotEmpty ? _currentProduct.description : "No description available.", style: const TextStyle(color: Colors.black54, height: 1.5)),
+      
+                          const SizedBox(height: 24),
+                          const Divider(),
+                          const SizedBox(height: 16),
+      
+                          if (_currentProduct.tierPrices.isNotEmpty) ...[
+                            const Text("Buy More, Save More", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF00599c))),
+                            const SizedBox(height: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                              color: Colors.grey.shade100,
-                              child: const Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey.shade300),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Column(
                                 children: [
-                                  Text("Quantity", style: TextStyle(fontWeight: FontWeight.bold)),
-                                  Text("Price Per Item", style: TextStyle(fontWeight: FontWeight.bold)),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                                    color: Colors.grey.shade100,
+                                    child: const Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text("Quantity", style: TextStyle(fontWeight: FontWeight.bold)),
+                                        Text("Price Per Item", style: TextStyle(fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                                  ),
+                                  const Divider(height: 1),
+                                  ..._currentProduct.tierPrices.map((tier) {
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text("Buy ${tier.qty}+"),
+                                          Text("₹${tier.price.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                                        ],
+                                      ),
+                                    );
+                                  }),
                                 ],
                               ),
                             ),
-                            const Divider(height: 1),
-                            // [FIX] Removed .toList() in spread
-                            ..._currentProduct.tierPrices.map((tier) {
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text("Buy ${tier.qty}+"),
-                                    Text("₹${tier.price.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-                                  ],
-                                ),
-                              );
-                            }),
+                            const SizedBox(height: 24),
                           ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                    ],
-
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _openRFQ,
-                        icon: const Icon(Icons.request_quote, color: Color(0xFF00599c)),
-                        label: const Text("Request for Quote (Bulk Order)", style: TextStyle(color: Color(0xFF00599c), fontWeight: FontWeight.bold)),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          side: const BorderSide(color: Color(0xFF00599c)),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
+      
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: _openRFQ,
+                              icon: const Icon(Icons.request_quote, color: Color(0xFF00599c)),
+                              label: const Text("Request for Quote (Bulk Order)", style: TextStyle(color: Color(0xFF00599c), fontWeight: FontWeight.bold)),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                side: const BorderSide(color: Color(0xFF00599c)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
+                          ),
+                          
+                          const SizedBox(height: 24),
+                          const Divider(),
+                          const SizedBox(height: 16),
+      
+                          const Text("More Information", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          const SizedBox(height: 8),
+                          if (_isLoadingSpecs)
+                            const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
+                          else if (_specs.isNotEmpty)
+                            Table(
+                              border: TableBorder.all(color: Colors.grey.shade200),
+                              columnWidths: const {0: FlexColumnWidth(1), 1: FlexColumnWidth(1.5)},
+                              children: _specs.entries.map((entry) {
+                                return TableRow(
+                                  decoration: BoxDecoration(color: Colors.white),
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.all(10),
+                                      child: Text(entry.key, style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.w500)),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.all(10),
+                                      child: Text(entry.value, style: const TextStyle(fontWeight: FontWeight.w500)),
+                                    ),
+                                  ],
+                                );
+                              }).toList(),
+                            )
+                          else 
+                            const Text("No additional specifications available.", style: TextStyle(color: Colors.grey)),
+      
+                          const SizedBox(height: 80), 
+                        ],
                       ),
                     ),
-                    
-                    const SizedBox(height: 24),
-                    const Divider(),
-                    const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          
+          // [CHANGE] Bottom Bar is now here, part of the Column
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+            decoration: BoxDecoration(
+              color: Colors.white, 
+              boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, -2))]
+            ),
+            child: SafeArea(
+              top: false,
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text("Price", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                        Text("₹${_currentProduct.price.toStringAsFixed(2)}", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF00599c))),
+                      ],
+                    ),
+                  ),
+                  
+                  Expanded(
+                    flex: 3,
+                    child: Consumer<CartProvider>(
+                      builder: (context, cart, child) {
+                        final cartItemIndex = cart.items.indexWhere((i) => i.sku == _currentProduct.sku);
+                        final isInCart = cartItemIndex >= 0;
+                        final qty = isInCart ? cart.items[cartItemIndex].qty : 0;
+                        
+                        // Sync controller if needed
+                        if (isInCart && !_qtyController.selection.isValid) {
+                          _qtyController.text = qty.toString();
+                        }
 
-                    const Text("More Information", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    const SizedBox(height: 8),
-                    if (_isLoadingSpecs)
-                      const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
-                    else if (_specs.isNotEmpty)
-                      Table(
-                        border: TableBorder.all(color: Colors.grey.shade200),
-                        columnWidths: const {0: FlexColumnWidth(1), 1: FlexColumnWidth(1.5)},
-                        children: _specs.entries.map((entry) {
-                          return TableRow(
-                            decoration: BoxDecoration(color: Colors.white),
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.all(10),
-                                child: Text(entry.key, style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.w500)),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.all(10),
-                                child: Text(entry.value, style: const TextStyle(fontWeight: FontWeight.w500)),
-                              ),
-                            ],
+                        if (!isInCart) {
+                          return ElevatedButton(
+                            onPressed: () {
+                              cart.addToCart(_currentProduct);
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${_currentProduct.name} added to cart!"), duration: const Duration(seconds: 1)));
+                            },
+                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                            child: const Text("Add to Cart", style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
                           );
-                        }).toList(),
-                      )
-                    else 
-                      const Text("No additional specifications available.", style: TextStyle(color: Colors.grey)),
+                        } else {
+                          return Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            decoration: BoxDecoration(color: const Color(0xFF00599c), borderRadius: BorderRadius.circular(12)),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                InkWell(
+                                  onTap: () {
+                                    if (qty > 1) {
+                                      cart.updateQty(cart.items[cartItemIndex], qty - 1);
+                                    } else {
+                                      _confirmRemove(context, cart, cart.items[cartItemIndex]);
+                                    }
+                                  },
+                                  child: const Icon(Icons.remove, color: Colors.white),
+                                ),
+                                
+                                SizedBox(
+                                  width: 50,
+                                  child: TextField(
+                                    controller: _qtyController,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      isDense: true,
+                                      border: InputBorder.none,
+                                      contentPadding: EdgeInsets.zero,
+                                    ),
+                                    onSubmitted: (val) {
+                                      int? newQty = int.tryParse(val);
+                                      if (newQty != null) {
+                                        if (newQty <= 0) {
+                                          _confirmRemove(context, cart, cart.items[cartItemIndex]);
+                                        } else {
+                                          cart.updateQty(cart.items[cartItemIndex], newQty);
+                                        }
+                                      } else {
+                                        _qtyController.text = qty.toString();
+                                      }
+                                    },
+                                  ),
+                                ),
 
-                    const SizedBox(height: 80), 
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-        decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, -2))]),
-        child: SafeArea(
-          child: Row(
-            children: [
-              Expanded(
-                flex: 2,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text("Price", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                    Text("₹${_currentProduct.price.toStringAsFixed(2)}", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF00599c))),
-                  ],
-                ),
-              ),
-              
-              Expanded(
-                flex: 3,
-                child: Consumer<CartProvider>(
-                  builder: (context, cart, child) {
-                    final cartItemIndex = cart.items.indexWhere((i) => i.sku == _currentProduct.sku);
-                    final isInCart = cartItemIndex >= 0;
-                    final qty = isInCart ? cart.items[cartItemIndex].qty : 0;
-        
-                    if (!isInCart) {
-                      return ElevatedButton(
-                        onPressed: () {
-                          cart.addToCart(_currentProduct);
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${_currentProduct.name} added to cart!"), duration: const Duration(seconds: 1)));
-                        },
-                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                        child: const Text("Add to Cart", style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
-                      );
-                    } else {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        decoration: BoxDecoration(color: const Color(0xFF00599c), borderRadius: BorderRadius.circular(12)),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            InkWell(
-                              onTap: () {
-                                if (qty > 1) {
-                                  cart.updateQty(cart.items[cartItemIndex], qty - 1);
-                                } else {
-                                  cart.removeFromCart(cart.items[cartItemIndex]);
-                                }
-                              },
-                              child: const Icon(Icons.remove, color: Colors.white),
+                                InkWell(
+                                  onTap: () {
+                                    cart.updateQty(cart.items[cartItemIndex], qty + 1);
+                                  },
+                                  child: const Icon(Icons.add, color: Colors.white),
+                                ),
+                              ],
                             ),
-                            Text("$qty", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-                            InkWell(
-                              onTap: () {
-                                cart.updateQty(cart.items[cartItemIndex], qty + 1);
-                              },
-                              child: const Icon(Icons.add, color: Colors.white),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-                  },
-                ),
+                          );
+                        }
+                      },
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

@@ -23,8 +23,8 @@ class ProductCard extends StatelessWidget {
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
+            blurRadius: 4, // Slight reduction
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -38,8 +38,8 @@ class ProductCard extends StatelessWidget {
                 imageUrl: imageUrl,
                 fit: BoxFit.cover,
                 width: double.infinity,
-                // [OPTIMIZATION] Downsample image to save memory
-                memCacheWidth: 400, 
+                // [OPTIMIZATION] Downsample to 200px (approx 150px * density)
+                memCacheWidth: 200, 
                 placeholder: (context, url) => Container(color: Colors.grey.shade100),
                 errorWidget: (context, url, error) => Container(
                   color: Colors.grey.shade200,
@@ -49,22 +49,23 @@ class ProductCard extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(6), // Reduced padding for smaller card
             child: Text(
               name,
-              maxLines: 1,
+              maxLines: 2, // Allow 2 lines for smaller width
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600),
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             child: Text(
               "₹$price",
               style: const TextStyle(
-                  color: Color(0xFF00599c), fontWeight: FontWeight.bold),
+                  color: Color(0xFF00599c), fontWeight: FontWeight.bold, fontSize: 13),
             ),
           ),
+          const SizedBox(height: 4),
         ],
       ),
     );

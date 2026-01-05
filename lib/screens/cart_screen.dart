@@ -31,8 +31,6 @@ class _CartScreenState extends State<CartScreen> {
     final token = await _storage.read(key: 'customer_token');
 
     if (token != null && token.isNotEmpty) {
-      // [FIX] Reverted to URL Parameter because server expects 'input_token' in the URL.
-      // Headers are cleaner, but the server script must support them.
       final String bridgeUrl = "https://buynutbolts.com/mobile/auth/login?input_token=$token"; 
 
       debugPrint("Launching Checkout Bridge: $bridgeUrl");
@@ -43,7 +41,6 @@ class _CartScreenState extends State<CartScreen> {
           builder: (_) => WebsiteWebViewScreen(
             url: bridgeUrl, 
             title: "Checkout",
-            // We don't pass headers here anymore as we are using the URL param
           )
         )
       );
@@ -67,6 +64,30 @@ class _CartScreenState extends State<CartScreen> {
         ),
       );
     }
+  }
+
+  void _confirmRemove(BuildContext context, CartProvider cart, CartItem item) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Remove Item"),
+        content: Text("Remove ${item.name} from cart?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              cart.removeFromCart(item);
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text("Remove"),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -100,6 +121,8 @@ class _CartScreenState extends State<CartScreen> {
             separatorBuilder: (_, __) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
               final item = cart.items[index];
+              final TextEditingController qtyCtrl = TextEditingController(text: item.qty.toString());
+              
               return GestureDetector(
                 onTap: () {
                   final product = Product(
@@ -108,7 +131,6 @@ class _CartScreenState extends State<CartScreen> {
                     price: item.price,
                     imageUrl: item.imageUrl ?? "",
                     description: "", 
-                    
                   );
                   Navigator.push(
                     context, 
@@ -140,10 +162,31 @@ class _CartScreenState extends State<CartScreen> {
                           if(item.qty > 1) {
                             cart.updateQty(item, item.qty - 1);
                           } else {
-                            cart.removeFromCart(item);
+                            _confirmRemove(context, cart, item);
                           }
                         }),
-                        Text("${item.qty}", style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00599c), fontSize: 16)),
+                        SizedBox(
+                          width: 40,
+                          child: TextField(
+                            controller: qtyCtrl,
+                            textAlign: TextAlign.center,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(border: InputBorder.none, isDense: true),
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00599c), fontSize: 16),
+                            onSubmitted: (val) {
+                               int? newQty = int.tryParse(val);
+                               if (newQty != null) {
+                                 if (newQty <= 0) {
+                                   _confirmRemove(context, cart, item);
+                                 } else {
+                                   cart.updateQty(item, newQty);
+                                 }
+                               } else {
+                                 qtyCtrl.text = item.qty.toString();
+                               }
+                            },
+                          ),
+                        ),
                         IconButton(icon: const Icon(Icons.add_circle_outline, color: Color(0xFF00599c)), onPressed: () => cart.updateQty(item, item.qty + 1)),
                       ],
                     ),

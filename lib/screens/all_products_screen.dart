@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../api/magento_api.dart';
 import '../models/magento_models.dart';
 import '../widgets/product_card.dart';
-import '../widgets/bnb_shimmer.dart'; // [NEW]
+import '../widgets/bnb_shimmer.dart'; 
 
 class AllProductsScreen extends StatefulWidget {
   const AllProductsScreen({super.key});
@@ -19,7 +19,7 @@ class _AllProductsScreenState extends State<AllProductsScreen> {
   bool _isLoading = false;
   int _currentPage = 1;
   bool _hasMore = true;
-  final int _pageSize = 20;
+  final int _pageSize = 20; // Keeping standard fetch size
   
   final ScrollController _scrollController = ScrollController();
 
@@ -82,17 +82,23 @@ class _AllProductsScreenState extends State<AllProductsScreen> {
         elevation: 1,
       ),
       body: _products.isEmpty && _isLoading
-          ? BNBShimmer.productGrid() // [FIX] Use Shimmer
+          ? BNBShimmer.productGrid()
           : GridView.builder(
               controller: _scrollController,
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(8),
               itemCount: _products.length + (_hasMore ? 1 : 0),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 0.7,
+                crossAxisCount: 3, // [CHANGE] Reduced product display size via 3 columns
+                crossAxisSpacing: 8, 
+                mainAxisSpacing: 8, 
+                childAspectRatio: 0.65, // Adjusted for narrower items
               ),
               itemBuilder: (context, index) {
                 if (index == _products.length) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const Center(child: Padding(
+                    padding: EdgeInsets.all(8.0),
+                    child: CircularProgressIndicator(),
+                  ));
                 }
                 final product = _products[index];
                 return GestureDetector(
