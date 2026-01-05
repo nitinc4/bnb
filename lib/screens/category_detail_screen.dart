@@ -20,8 +20,15 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
   late List<Category> _subCategories;
   bool _isLoadingSubCats = false;
 
-  List<Product> _products = [];
-  bool _isLoadingProducts = true;
+  // Product List State
+  final List<Product> _products = [];
+  bool _isLoading = false; // Unified loading state
+  
+  // Pagination State
+  int _currentPage = 1;
+  bool _hasMore = true;
+  final int _pageSize = 20;
+  final ScrollController _scrollController = ScrollController();
 
   // Filters
   List<ProductAttribute> _filterAttributes = [];
@@ -36,11 +43,27 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
   void initState() {
     super.initState();
     _subCategories = widget.category.children;
+    _scrollController.addListener(_onScroll);
 
     if (_subCategories.isNotEmpty) {
       _enrichSubCategories();
     } else {
       _fetchProducts();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    // Trigger load more when user is 200 pixels from bottom
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      if (!_isLoading && _hasMore) {
+        _fetchProducts();
+      }
     }
   }
 
@@ -55,28 +78,57 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
     if (mounted) setState(() => _isLoadingSubCats = false);
   }
 
-  Future<void> _fetchProducts() async {
-    setState(() => _isLoadingProducts = true);
+  Future<void> _fetchProducts({bool refresh = false}) async {
+    if (_isLoading) return;
 
-    final products = await _api.fetchProducts(
-      categoryId: widget.category.id,
-      filters: _activeFilters.isNotEmpty ? _activeFilters : null,
-      sortField: _sortField,
-      sortDirection: _sortDirection,
-    );
+    // Reset logic if this is a refresh (filter/sort change or pull-to-refresh)
+    if (refresh) {
+      setState(() {
+        _products.clear();
+        _currentPage = 1;
+        _hasMore = true;
+      });
+    }
 
-    if (!mounted) return;
+    setState(() => _isLoading = true);
 
-    setState(() {
-      _products = products;
-      _isLoadingProducts = false;
-    });
+    try {
+      final newProducts = await _api.fetchProducts(
+        categoryId: widget.category.id,
+        filters: _activeFilters.isNotEmpty ? _activeFilters : null,
+        sortField: _sortField,
+        sortDirection: _sortDirection,
+        page: _currentPage,
+        pageSize: _pageSize,
+      );
 
-    if (_filterAttributes.isEmpty && products.isNotEmpty) {
-      final attributeSetId = products.first.attributeSetId;
-      if (attributeSetId > 0) {
-        _fetchAndFilterAttributes(attributeSetId, products);
+      if (mounted) {
+        setState(() {
+          if (newProducts.isEmpty) {
+            _hasMore = false;
+          } else {
+            _products.addAll(newProducts);
+            _currentPage++; // Increment page for next fetch
+            
+            // If less than pageSize returned, we've likely reached the end
+            if (newProducts.length < _pageSize) {
+              _hasMore = false;
+            }
+          }
+        });
+
+        // Fetch attributes for filters if this is the first batch and we haven't yet
+        if (_filterAttributes.isEmpty && _products.isNotEmpty) {
+          final attributeSetId = _products.first.attributeSetId;
+          if (attributeSetId > 0) {
+            _fetchAndFilterAttributes(attributeSetId, _products);
+          }
+        }
       }
+    } catch (e) {
+      debugPrint("Error fetching category products: $e");
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -84,20 +136,24 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
     int attributeSetId,
     List<Product> loadedProducts,
   ) async {
-    final allAttrs = await _api.fetchAttributesBySet(attributeSetId);
-    final relevantAttrs = allAttrs.where((attr) {
-      return loadedProducts.any((product) =>
-          product.customAttributes.containsKey(attr.code) &&
-          product.customAttributes[attr.code] != null);
-    }).toList();
-    if (mounted) setState(() => _filterAttributes = relevantAttrs);
+    try {
+      final allAttrs = await _api.fetchAttributesBySet(attributeSetId);
+      final relevantAttrs = allAttrs.where((attr) {
+        return loadedProducts.any((product) =>
+            product.customAttributes.containsKey(attr.code) &&
+            product.customAttributes[attr.code] != null);
+      }).toList();
+      if (mounted) setState(() => _filterAttributes = relevantAttrs);
+    } catch (e) {
+      debugPrint("Error fetching attributes: $e");
+    }
   }
 
   Future<void> _onRefresh() async {
     if (_subCategories.isNotEmpty) {
       await _enrichSubCategories();
     } else {
-      await _fetchProducts();
+      await _fetchProducts(refresh: true);
     }
   }
 
@@ -127,7 +183,7 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
                             onPressed: () {
                               setState(() => _activeFilters.clear());
                               Navigator.pop(context);
-                              _fetchProducts();
+                              _fetchProducts(refresh: true);
                             },
                             child: const Text("Clear All"),
                           ),
@@ -167,7 +223,7 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
                           style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c)),
                           onPressed: () {
                             Navigator.pop(context);
-                            _fetchProducts();
+                            _fetchProducts(refresh: true);
                           },
                           child: const Text("Apply Filters", style: TextStyle(color: Colors.white)),
                         ),
@@ -215,7 +271,7 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
       onTap: () {
         setState(() { _sortField = field; _sortDirection = dir; _sortLabel = label; });
         Navigator.pop(context);
-        _fetchProducts();
+        _fetchProducts(refresh: true);
       },
     );
   }
@@ -266,7 +322,6 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
             context,
             MaterialPageRoute(builder: (_) => CategoryDetailScreen(category: cat)),
           ),
-          // [FIX] Added Container decoration to match Categories Screen
           child: Container(
             decoration: BoxDecoration(
               color: Colors.white,
@@ -310,20 +365,33 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
   }
 
   Widget _buildProductGrid() {
-    if (_isLoadingProducts) return BNBShimmer.productGrid();
-    if (_products.isEmpty) return const Center(child: Text("No products found"));
+    // Show shimmer only on initial load (when list is empty)
+    if (_products.isEmpty && _isLoading) return BNBShimmer.productGrid();
+    
+    // Show empty state
+    if (_products.isEmpty && !_isLoading) return const Center(child: Text("No products found"));
 
     return GridView.builder(
+      controller: _scrollController,
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(12),
-      itemCount: _products.length,
+      // Add one to item count if we have more to load (for the spinner)
+      itemCount: _products.length + (_hasMore ? 1 : 0),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3, // [NOTE] Kept consistent with AllProducts (3 columns)
+        crossAxisCount: 3, 
         crossAxisSpacing: 8,
         mainAxisSpacing: 8,
         childAspectRatio: 0.65
       ),
       itemBuilder: (context, index) {
+        // If we are at the end and have more, show spinner
+        if (index == _products.length) {
+          return const Center(child: Padding(
+            padding: EdgeInsets.all(8.0),
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ));
+        }
+
         final product = _products[index];
         return GestureDetector(
           onTap: () => Navigator.pushNamed(context, '/productDetail', arguments: product),
