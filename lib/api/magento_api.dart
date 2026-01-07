@@ -61,21 +61,18 @@ class MagentoAPI {
   // --- PASSWORD RESET ---
   Future<bool> initiatePasswordReset(String email) async {
     try {
-      // Standard Magento 2 REST API for password reset
       final response = await http.put(
         Uri.parse("$baseUrl/rest/V1/customers/password"),
         headers: {
           "Content-Type": "application/json",
-          "Authorization": "Bearer ${AppConfig.accessToken}" // Integration token
+          "Authorization": "Bearer ${AppConfig.accessToken}" 
         },
         body: jsonEncode({
           "email": email,
-          "template": "email_reset", // Standard Magento template
+          "template": "email_reset", 
           "websiteId": 1 
         }),
       );
-      
-      // 200 OK or 202 Accepted usually means success
       return response.statusCode >= 200 && response.statusCode < 300;
     } catch (e) {
       debugPrint("Password Reset Error: $e");
@@ -91,39 +88,33 @@ class MagentoAPI {
     String? message
   }) async {
     try {
-      // Reusing RFQ logic or a dedicated contact endpoint
-      // Assuming a generic contact/inquiry endpoint exists or using RFQ as a proxy
       final payload = {
         'name': name,
         'email': email,
         'mobile': phone,
         'comment': "Live Support Failed to Initialize. Customer attempting to connect.\n${message ?? ''}",
-        'product': 'Support Inquiry', // Placeholder for RFQ fields
+        'product': 'Support Inquiry',
         'quantity': 1,
         'source': 'app_support_fallback'
       };
 
       await http.post(
-        Uri.parse(AppConfig.rfqUrl), // Using RFQ endpoint as generic mailer if available
+        Uri.parse(AppConfig.rfqUrl), 
         headers: {
           "Content-Type": "application/json",
           "Authorization": "Bearer ${AppConfig.rfqToken}",
         },
         body: jsonEncode(payload),
       );
-      debugPrint("Support Fallback Email Sent for $email");
     } catch (e) {
       debugPrint("Failed to send support fallback email: $e");
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // [NEW] FIREBASE NOTIFICATIONS SUPPORT
-  // ---------------------------------------------------------------------------
-
+  // --- FCM NOTIFICATIONS ---
   Future<void> registerDeviceToken(String email, String fcmToken) async {
     try {
-      final response = await http.post(
+      await http.post(
         Uri.parse("$baseUrl/rest/V1/notifications/register"), 
         headers: {
           "Content-Type": "application/json",
@@ -135,21 +126,12 @@ class MagentoAPI {
           "platform": defaultTargetPlatform == TargetPlatform.android ? "android" : "ios",
         }),
       );
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        debugPrint("FCM Token Registered Successfully for $email");
-      } else {
-        debugPrint("Failed to register FCM Token: ${response.body}");
-      }
     } catch (e) {
       debugPrint("Error registering FCM token: $e");
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // AI TOOLS & RFQ
-  // ---------------------------------------------------------------------------
-
+  // --- AI TOOLS & RFQ ---
   Future<Map<String, dynamic>> submitRfq({
     required String product,
     required String quantity,
@@ -181,20 +163,15 @@ class MagentoAPI {
       if (response.statusCode >= 200 && response.statusCode < 300) {
         try {
            final jsonResponse = jsonDecode(response.body);
-           if (jsonResponse is Map) {
-             if (jsonResponse.containsKey('success') && jsonResponse['success'] == false) {
-               return {'success': false, 'message': jsonResponse['message'] ?? 'Server rejected request.'};
-             }
-             return {'success': true, 'message': jsonResponse['message'] ?? 'RFQ Submitted!'};
+           if (jsonResponse is Map && jsonResponse.containsKey('success') && jsonResponse['success'] == false) {
+             return {'success': false, 'message': jsonResponse['message'] ?? 'Server rejected request.'};
            }
         } catch (_) {}
         return {'success': true, 'message': 'RFQ Submitted successfully!'};
       } else {
-        debugPrint("RFQ Failed: ${response.statusCode} - ${response.body}");
         return {'success': false, 'message': 'Server Error (${response.statusCode})'};
       }
     } catch (e) {
-      debugPrint("RFQ Error: $e");
       return {'success': false, 'message': 'Connection Error: $e'};
     }
   }
@@ -216,7 +193,6 @@ class MagentoAPI {
       };
 
       final response = await _oauthClient.get("/orders", params: queryParams);
-      
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final items = data['items'] as List? ?? [];
@@ -233,6 +209,8 @@ class MagentoAPI {
       return {'success': false, 'message': 'Connection Error: $e'};
     }
   }
+
+  // --- SEARCH & CATEGORY HELPERS ---
 
   Category? findCategoryByName(String name) {
     if (name.isEmpty) return null;
@@ -316,29 +294,62 @@ class MagentoAPI {
   Future<void> updateProductCache(Product updatedProduct) async {
     bool changed = false;
     final index = cachedProducts.indexWhere((p) => p.sku == updatedProduct.sku);
-    if (index != -1) { cachedProducts[index] = updatedProduct; changed = true; }
+    if (index != -1) { 
+      cachedProducts[index] = updatedProduct; 
+      changed = true; 
+    }
+    
     categoryProductsCache.forEach((key, list) {
       final catIndex = list.indexWhere((p) => p.sku == updatedProduct.sku);
       if (catIndex != -1) list[catIndex] = updatedProduct;
     });
+
     if (changed) {
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('cached_products_data', jsonEncode(cachedProducts.map((e) => e.toJson()).toList()));
-      } catch (e) { debugPrint("Error updating product cache: $e"); }
+      } catch (e) { 
+        debugPrint("Error updating product cache: $e"); 
+      }
     }
   }
 
-  Future<List<Product>> fetchProducts({ int? categoryId, int page = 1, int pageSize = 20, Map<String, dynamic>? filters, String? sortField, String? sortDirection }) async {
+  // --- CORE FETCH METHODS ---
+
+  Future<List<Product>> fetchProducts({ 
+    int? categoryId, 
+    int page = 1, 
+    int pageSize = 20, 
+    Map<String, dynamic>? filters, 
+    String? sortField, 
+    String? sortDirection,
+    bool refresh = false, 
+  }) async {
     bool isDefaultSort = sortField == null || sortField.isEmpty;
     bool hasFilters = filters != null && filters.isNotEmpty;
     bool isFirstPage = page == 1;
     bool isAllProducts = categoryId == null;
 
-    if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort && cachedProducts.isNotEmpty) return cachedProducts;
-    if (categoryId != null && isFirstPage && !hasFilters && isDefaultSort) {
-      if (categoryProductsCache.containsKey(categoryId) && categoryProductsCache[categoryId]!.isNotEmpty) return categoryProductsCache[categoryId]!;
+    // [FIX] Smart Cache Logic:
+    // Only return cached data if:
+    // 1. Not refreshing
+    // 2. Cache exists
+    // 3. Cache has enough items to satisfy the requested pageSize
+    if (!refresh && isAllProducts && isFirstPage && !hasFilters && isDefaultSort) {
+       if (cachedProducts.isNotEmpty && cachedProducts.length >= pageSize) return cachedProducts;
     }
+    
+    if (!refresh && categoryId != null && isFirstPage && !hasFilters && isDefaultSort) {
+      if (categoryProductsCache.containsKey(categoryId)) {
+        final cached = categoryProductsCache[categoryId]!;
+        // [IMPORTANT] Ignore cache if it's smaller than requested page size
+        // This fixes the bug where Home Screen caches 10 items, causing Detail Screen to think there are only 10 items.
+        if (cached.isNotEmpty && cached.length >= pageSize) {
+          return cached;
+        }
+      }
+    }
+
     try {
       final Map<String, String> queryParams = { "searchCriteria[pageSize]": pageSize.toString(), "searchCriteria[currentPage]": page.toString() };
       int groupIndex = 0;
@@ -360,11 +371,16 @@ class MagentoAPI {
         queryParams["searchCriteria[sortOrders][0][field]"] = sortField;
         queryParams["searchCriteria[sortOrders][0][direction]"] = sortDirection;
       }
+      
       final response = await _oauthClient.get("/products", params: queryParams);
+      
       if (response.statusCode == 200) {
         final products = await compute(_parseProducts, response.body);
+        
+        // Update Cache Logic
         if (isAllProducts && isFirstPage && !hasFilters && isDefaultSort) cachedProducts = products;
         if (categoryId != null && isFirstPage && !hasFilters && isDefaultSort) categoryProductsCache[categoryId] = products;
+        
         return products;
       }
     } catch (e) { debugPrint("Fetch Products Error: $e"); }
@@ -399,47 +415,35 @@ class MagentoAPI {
 
   Future<List<ProductAttribute>> fetchGlobalFilterableAttributes() async {
     try {
-      final queryParams = { "searchCriteria[filter_groups][0][filters][0][field]": "is_filterable", "searchCriteria[filter_groups][0][filters][0][value]": "1", "searchCriteria[filter_groups][0][filters][0][condition_type]": "eq" };
+      final queryParams = { 
+        "searchCriteria[filter_groups][0][filters][0][field]": "is_filterable", 
+        "searchCriteria[filter_groups][0][filters][0][value]": "1", 
+        "searchCriteria[filter_groups][0][filters][0][condition_type]": "eq" 
+      };
       final response = await _oauthClient.get("/products/attributes", params: queryParams);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final items = data['items'] as List? ?? [];
         return items.map((e) => ProductAttribute.fromJson(e)).where((attr) => (attr.frontendInput == 'select' || attr.frontendInput == 'multiselect') && attr.options.isNotEmpty).toList();
       }
-    } catch (e) { debugPrint("Fetch Global Attributes Error: $e"); }
+    } catch (e) { 
+      debugPrint("Fetch Global Attributes Error: $e"); 
+    }
     return [];
   }
 
-  Future<void> clearCache() async {
-    cachedCategories.clear(); cachedProducts.clear(); categoryProductsCache.clear(); _detailsCache.clear(); cachedUser = null;
+  Future<List<Category>> fetchCategories({bool refresh = false}) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('cached_categories_data'); await prefs.remove('cached_products_data'); await prefs.remove('category_details_cache'); await prefs.remove('cached_user_data');
-  }
-
-  Future<List<Product>> _fetchProductsBySkus(List<String> skus) async {
-    if (skus.isEmpty) return [];
-    try {
-      final skuListStr = skus.join(",");
-      final queryParams = { "searchCriteria[filter_groups][0][filters][0][field]": "sku", "searchCriteria[filter_groups][0][filters][0][value]": skuListStr, "searchCriteria[filter_groups][0][filters][0][condition_type]": "in", "searchCriteria[pageSize]": "${skus.length}" };
-      final response = await _oauthClient.get("/products", params: queryParams);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final items = data["items"] as List? ?? [];
-        return items.map((json) => Product.fromJson(json)).toList();
-      }
-    } catch (e) { debugPrint("Error fetching cart product details: $e"); }
-    return [];
-  }
-
-  Future<List<Category>> fetchCategories() async {
-    if (cachedCategories.isNotEmpty) return cachedCategories;
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.containsKey('cached_categories_data')) {
+    
+    if (!refresh && cachedCategories.isNotEmpty) return cachedCategories;
+    
+    if (!refresh && prefs.containsKey('cached_categories_data')) {
       try {
         cachedCategories = (jsonDecode(prefs.getString('cached_categories_data')!) as List).map((e) => Category.fromJson(e)).toList();
         if (cachedCategories.isNotEmpty) return cachedCategories;
       } catch (e) { debugPrint("Load Cached Categories Error: $e"); }
     }
+    
     try {
       final response = await _oauthClient.get("/categories");
       if (response.statusCode == 200) {
@@ -470,6 +474,27 @@ class MagentoAPI {
     final results = await Future.wait(tasks);
     try { prefs.setString('category_details_cache', jsonEncode(_detailsCache.map((k, v) => MapEntry(k, v.toJson())))); } catch (e) { debugPrint("Save Category Details Cache Error: $e"); }
     return results.where((c) => c.isActive).toList();
+  }
+
+  Future<void> clearCache() async {
+    cachedCategories.clear(); cachedProducts.clear(); categoryProductsCache.clear(); _detailsCache.clear(); cachedUser = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('cached_categories_data'); await prefs.remove('cached_products_data'); await prefs.remove('category_details_cache'); await prefs.remove('cached_user_data');
+  }
+
+  Future<List<Product>> _fetchProductsBySkus(List<String> skus) async {
+    if (skus.isEmpty) return [];
+    try {
+      final skuListStr = skus.join(",");
+      final queryParams = { "searchCriteria[filter_groups][0][filters][0][field]": "sku", "searchCriteria[filter_groups][0][filters][0][value]": skuListStr, "searchCriteria[filter_groups][0][filters][0][condition_type]": "in", "searchCriteria[pageSize]": "${skus.length}" };
+      final response = await _oauthClient.get("/products", params: queryParams);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final items = data["items"] as List? ?? [];
+        return items.map((json) => Product.fromJson(json)).toList();
+      }
+    } catch (e) { debugPrint("Error fetching cart product details: $e"); }
+    return [];
   }
 
   Future<Product?> fetchProductBySku(String sku) async {

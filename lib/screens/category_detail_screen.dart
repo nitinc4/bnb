@@ -21,7 +21,7 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
   bool _isLoadingSubCats = false;
 
   // Product List State
-  final List<Product> _products = [];
+  List<Product> _products = [];
   bool _isLoading = false; 
   
   // Pagination State
@@ -59,7 +59,9 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
   }
 
   void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+    // [FIX] Adjusted threshold and check
+    if (_scrollController.hasClients && 
+        _scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 100) {
       if (!_isLoading && _hasMore) {
         _fetchProducts();
       }
@@ -78,37 +80,48 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
   }
 
   Future<void> _fetchProducts({bool refresh = false}) async {
-    if (_isLoading) return;
+    // If refreshing, we do NOT want to return early even if loading,
+    // but we usually want to avoid concurrent refresh.
+    if (_isLoading && !refresh) return;
 
     if (refresh) {
-      setState(() {
-        _products.clear();
-        _currentPage = 1;
-        _hasMore = true;
-      });
+      // [FIX] Do NOT clear _products here. Keeps existing UI visible.
+      // _products.clear(); 
+      // Do NOT set _currentPage here yet, wait for success.
+    } else {
+      setState(() => _isLoading = true);
     }
 
-    setState(() => _isLoading = true);
-
     try {
+      // If refresh, fetch page 1. Else fetch current page.
+      final int pageToFetch = refresh ? 1 : _currentPage;
+
       final newProducts = await _api.fetchProducts(
         categoryId: widget.category.id,
         filters: _activeFilters.isNotEmpty ? _activeFilters : null,
         sortField: _sortField,
         sortDirection: _sortDirection,
-        page: _currentPage,
+        page: pageToFetch,
         pageSize: _pageSize,
+        refresh: refresh, // [FIX] Pass refresh param
       );
 
       if (mounted) {
         setState(() {
-          if (newProducts.isEmpty) {
-            _hasMore = false;
+          if (refresh) {
+            // [FIX] Replace list completely
+            _products = newProducts;
+            _currentPage = 2; // Next page will be 2
+            _hasMore = newProducts.length >= _pageSize;
           } else {
-            _products.addAll(newProducts);
-            _currentPage++; 
-            if (newProducts.length < _pageSize) {
+            if (newProducts.isEmpty) {
               _hasMore = false;
+            } else {
+              _products.addAll(newProducts);
+              _currentPage++; 
+              if (newProducts.length < _pageSize) {
+                _hasMore = false;
+              }
             }
           }
         });
@@ -152,6 +165,7 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
     }
   }
 
+  // ... (Filter and Sort methods remain unchanged) ...
   void _showFilterDialog() {
     showModalBottomSheet(
       context: context,
@@ -368,7 +382,6 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(12),
       itemCount: _products.length + (_hasMore ? 1 : 0),
-      // [CHANGE] Scalable Grid
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 135,
         crossAxisSpacing: 8,

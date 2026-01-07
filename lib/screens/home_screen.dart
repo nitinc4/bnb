@@ -25,17 +25,16 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  DateTime? _lastPressedAt; // [FIX] Track back press time
+  DateTime? _lastPressedAt; 
 
   void _onItemTapped(int index) {
     setState(() { _selectedIndex = index; });
   }
 
-  // [FIX] Handle Back Button Logic
   Future<bool> _onWillPop() async {
     if (_selectedIndex != 0) {
-      setState(() { _selectedIndex = 0; }); // Go to Home Tab
-      return false; // Do not exit
+      setState(() { _selectedIndex = 0; });
+      return false; 
     }
 
     final now = DateTime.now();
@@ -46,7 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       return false; 
     }
-    return true; // Allow exit
+    return true; 
   }
 
   @override
@@ -59,7 +58,7 @@ class _HomeScreenState extends State<HomeScreen> {
       const SupportScreen(isEmbedded: true),
     ];
 
-    return WillPopScope( // [FIX] Wraps Scaffold
+    return WillPopScope( 
       onWillPop: _onWillPop,
       child: Scaffold(
         key: _scaffoldKey,
@@ -127,7 +126,8 @@ class HomeTab extends StatefulWidget {
 }
 
 class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
-  Future<List<Category>> _categoriesFuture = Future.value(MagentoAPI.cachedCategories);
+  // [FIX] Use List variable instead of FutureBuilder to control update timing
+  List<Category>? _categories;
 
   @override
   bool get wantKeepAlive => true; 
@@ -135,33 +135,43 @@ class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
   @override
   void initState() {
     super.initState();
-    if (MagentoAPI.cachedCategories.isEmpty) {
-      _categoriesFuture = MagentoAPI().fetchCategories();
+    // Load from cache initially
+    if (MagentoAPI.cachedCategories.isNotEmpty) {
+      _categories = MagentoAPI.cachedCategories;
+    } else {
+      _fetchInitialData();
     }
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<CartProvider>(context, listen: false).fetchCart();
     });
   }
 
+  Future<void> _fetchInitialData() async {
+    final cats = await MagentoAPI().fetchCategories();
+    if (mounted) setState(() => _categories = cats);
+  }
+
   Future<void> _onRefresh() async {
-    await MagentoAPI().clearCache();
-    final categoriesTask = MagentoAPI().fetchCategories();
-    setState(() { _categoriesFuture = categoriesTask; });
-    try {
-      final categories = await categoriesTask;
-      final List<Category> allCategories = [];
-      for (var cat in categories) {
-        allCategories.add(cat);
-        allCategories.addAll(cat.children);
-      }
-      int limit = allCategories.length > 5 ? 5 : allCategories.length;
-      List<Future> productTasks = [];
-      for (int i = 0; i < limit; i++) {
-        productTasks.add(MagentoAPI().fetchProducts(categoryId: allCategories[i].id, pageSize: 10));
-      }
-      await Future.wait(productTasks);
-      if (mounted) setState(() {}); 
-    } catch (e) { debugPrint("Refresh Error: $e"); }
+    // [FIX] Don't clear cache globally. Fetch fresh data and replace.
+    final categories = await MagentoAPI().fetchCategories(refresh: true);
+    
+    // Warm up home products
+    final List<Category> allCategories = [];
+    for (var cat in categories) {
+      allCategories.add(cat);
+      allCategories.addAll(cat.children);
+    }
+    int limit = allCategories.length > 5 ? 5 : allCategories.length;
+    List<Future> productTasks = [];
+    for (int i = 0; i < limit; i++) {
+      productTasks.add(MagentoAPI().fetchProducts(categoryId: allCategories[i].id, pageSize: 10, refresh: true));
+    }
+    await Future.wait(productTasks);
+
+    if (mounted) setState(() {
+      _categories = categories;
+    }); 
   }
 
   @override
@@ -200,59 +210,48 @@ class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
 
             SizedBox(
               height: 170,
-              child: FutureBuilder<List<Category>>(
-                future: _categoriesFuture,
-                initialData: MagentoAPI.cachedCategories.isNotEmpty ? MagentoAPI.cachedCategories : null,
-                builder: (context, snapshot) {
-                  if (snapshot.hasData && snapshot.data!.isNotEmpty) {
-                    final categories = snapshot.data!;
-                    return ListView.builder(
-                      scrollDirection: Axis.horizontal, itemCount: categories.length,
-                      itemBuilder: (context, index) {
-                        final cat = categories[index];
-                        return InkWell(
-                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => CategoryDetailScreen(category: cat))),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 10),
-                            child: Column(
-                              children: [
-                                Container(
-                                  width: 100, height: 100,
-                                  decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 5, offset: const Offset(0, 3))]),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(20.0),
-                                    child: cat.imageUrl != null ? Image.network(cat.imageUrl!, fit: BoxFit.contain) : Image.asset("assets/icons/placeholder.png"),
-                                  ),
+              child: _categories == null
+                ? BNBShimmer.categoryCircles()
+                : ListView.builder(
+                    scrollDirection: Axis.horizontal, 
+                    itemCount: _categories!.length,
+                    itemBuilder: (context, index) {
+                      final cat = _categories![index];
+                      return InkWell(
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => CategoryDetailScreen(category: cat))),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          child: Column(
+                            children: [
+                              Container(
+                                width: 100, height: 100,
+                                decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 5, offset: const Offset(0, 3))]),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(20.0),
+                                  child: cat.imageUrl != null ? Image.network(cat.imageUrl!, fit: BoxFit.contain) : Image.asset("assets/icons/placeholder.png"),
                                 ),
-                                const SizedBox(height: 15),
-                                SizedBox(width: 100, child: Text(cat.name, maxLines: 3, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 13))),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(height: 15),
+                              SizedBox(width: 100, child: Text(cat.name, maxLines: 3, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 13))),
+                            ],
                           ),
-                        );
-                      },
-                    );
-                  }
-                  if (snapshot.connectionState == ConnectionState.waiting) return BNBShimmer.categoryCircles(); 
-                  return const Center(child: Text("No Categories"));
-                },
-              ),
+                        ),
+                      );
+                    },
+                  ),
             ),
 
-            FutureBuilder<List<Category>>(
-              future: _categoriesFuture,
-              initialData: MagentoAPI.cachedCategories.isNotEmpty ? MagentoAPI.cachedCategories : null,
-              builder: (context, snapshot) {
-                if (!snapshot.hasData || snapshot.data!.isEmpty) return const SizedBox.shrink();
-                final categories = snapshot.data!;
-                final List<Category> allCategories = [];
-                for (var cat in categories) {
-                  allCategories.add(cat);
-                  allCategories.addAll(cat.children);
-                }
-                return Column(children: allCategories.map((cat) => CategoryProductRow(key: ValueKey(cat.id), category: cat)).toList());
-              },
-            ),
+            if (_categories != null)
+              Builder(
+                builder: (context) {
+                  final List<Category> allCategories = [];
+                  for (var cat in _categories!) {
+                    allCategories.add(cat);
+                    allCategories.addAll(cat.children);
+                  }
+                  return Column(children: allCategories.map((cat) => CategoryProductRow(key: ValueKey(cat.id), category: cat)).toList());
+                },
+              ),
             
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
@@ -282,15 +281,25 @@ class CategoryProductRow extends StatefulWidget {
 
 class _CategoryProductRowState extends State<CategoryProductRow> {
   late Future<List<Product>> _productsFuture;
+  
   @override
-  void initState() { super.initState(); _load(); }
-  void _load() { _productsFuture = MagentoAPI().fetchProducts(categoryId: widget.category.id, pageSize: 10); }
+  void initState() { 
+    super.initState(); 
+    _load(); 
+  }
+  
+  void _load() { 
+    _productsFuture = MagentoAPI().fetchProducts(categoryId: widget.category.id, pageSize: 10); 
+  }
 
   @override
   Widget build(BuildContext context) {
+    // [FIX] Prioritize cache if available, even if future is pending re-fetch
     final cachedProducts = MagentoAPI.categoryProductsCache[widget.category.id];
+    
     return FutureBuilder<List<Product>>(
-      future: _productsFuture, initialData: cachedProducts,
+      future: _productsFuture, 
+      initialData: cachedProducts,
       builder: (context, snapshot) {
         if (snapshot.hasData && snapshot.data!.isNotEmpty) {
           final products = snapshot.data!;

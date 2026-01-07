@@ -14,12 +14,13 @@ class AllProductsScreen extends StatefulWidget {
 
 class _AllProductsScreenState extends State<AllProductsScreen> {
   final MagentoAPI _api = MagentoAPI();
-  final List<Product> _products = [];
+  List<Product> _products = [];
   
   bool _isLoading = false;
   int _currentPage = 1;
   bool _hasMore = true;
-  final int _pageSize = 20;
+  // [FIX] Increased pageSize to 50 for robust scrolling on larger screens
+  final int _pageSize = 50; 
   
   final ScrollController _scrollController = ScrollController();
 
@@ -40,7 +41,9 @@ class _AllProductsScreenState extends State<AllProductsScreen> {
   }
 
   void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+    // [FIX] Increased threshold to 200
+    if (_scrollController.hasClients && 
+        _scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
       if (!_isLoading && _hasMore) {
         _fetchProducts();
       }
@@ -48,34 +51,42 @@ class _AllProductsScreenState extends State<AllProductsScreen> {
   }
 
   Future<void> _fetchProducts({bool refresh = false}) async {
-    if (_isLoading) return;
+    if (_isLoading && !refresh) return;
     
     if (refresh) {
-      setState(() {
-        _products.clear();
-        _currentPage = 1;
-        _hasMore = true;
-      });
+      // Don't clear list to avoid flicker
+    } else {
+      setState(() => _isLoading = true);
     }
 
-    setState(() => _isLoading = true);
-
     try {
+      final int pageToFetch = refresh ? 1 : _currentPage;
+
       final newProducts = await _api.fetchProducts(
-        page: _currentPage,
+        page: pageToFetch,
         pageSize: _pageSize,
         filters: _activeFilters.isNotEmpty ? _activeFilters : null,
         sortField: _sortField,
         sortDirection: _sortDirection,
+        refresh: refresh, 
       );
 
       if (mounted) {
         setState(() {
-          if (newProducts.isEmpty) {
-            _hasMore = false;
+          if (refresh) {
+            _products = newProducts;
+            _currentPage = 2;
+            _hasMore = newProducts.length >= _pageSize;
           } else {
-            _products.addAll(newProducts);
-            _currentPage++;
+            if (newProducts.isEmpty) {
+              _hasMore = false;
+            } else {
+              _products.addAll(newProducts);
+              _currentPage++;
+              if (newProducts.length < _pageSize) {
+                _hasMore = false;
+              }
+            }
           }
         });
 
@@ -92,7 +103,7 @@ class _AllProductsScreenState extends State<AllProductsScreen> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
-
+  
   Future<void> _fetchAndFilterAttributes(
     int attributeSetId,
     List<Product> loadedProducts,
@@ -252,36 +263,39 @@ class _AllProductsScreenState extends State<AllProductsScreen> {
       ),
       body: _products.isEmpty && _isLoading
           ? BNBShimmer.productGrid()
-          : GridView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(8),
-              itemCount: _products.length + (_hasMore ? 1 : 0),
-              // [CHANGE] Use MaxCrossAxisExtent for scalable grid
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 135, // Fits ~3 cols on phones, more on tablets
-                crossAxisSpacing: 8, 
-                mainAxisSpacing: 8, 
-                childAspectRatio: 0.65, 
+          : RefreshIndicator(
+              onRefresh: () => _fetchProducts(refresh: true),
+              child: GridView.builder(
+                physics: const AlwaysScrollableScrollPhysics(),
+                controller: _scrollController,
+                padding: const EdgeInsets.all(8),
+                itemCount: _products.length + (_hasMore ? 1 : 0),
+                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: 135,
+                  crossAxisSpacing: 8, 
+                  mainAxisSpacing: 8, 
+                  childAspectRatio: 0.65, 
+                ),
+                itemBuilder: (context, index) {
+                  if (index == _products.length) {
+                    return const Center(child: Padding(
+                      padding: EdgeInsets.all(8.0),
+                      child: CircularProgressIndicator(),
+                    ));
+                  }
+                  final product = _products[index];
+                  return GestureDetector(
+                    onTap: () {
+                      Navigator.pushNamed(context, '/productDetail', arguments: product);
+                    },
+                    child: ProductCard(
+                      name: product.name,
+                      price: product.price.toStringAsFixed(2),
+                      imageUrl: product.imageUrl,
+                    ),
+                  );
+                },
               ),
-              itemBuilder: (context, index) {
-                if (index == _products.length) {
-                  return const Center(child: Padding(
-                    padding: EdgeInsets.all(8.0),
-                    child: CircularProgressIndicator(),
-                  ));
-                }
-                final product = _products[index];
-                return GestureDetector(
-                  onTap: () {
-                    Navigator.pushNamed(context, '/productDetail', arguments: product);
-                  },
-                  child: ProductCard(
-                    name: product.name,
-                    price: product.price.toStringAsFixed(2),
-                    imageUrl: product.imageUrl,
-                  ),
-                );
-              },
             ),
     );
   }
