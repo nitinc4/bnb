@@ -29,7 +29,7 @@ class _SupportScreenState extends State<SupportScreen> {
   // --- UI STATE ---
   final TextEditingController _messageController = TextEditingController();
 
-  // Contact Details
+  // Contact Details (Collected for Fallback, Name used for Chat)
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
@@ -53,9 +53,11 @@ class _SupportScreenState extends State<SupportScreen> {
   IO.Socket? socket;
   bool _isConnected = false;
   bool _isAssigned = false;
-  bool _isFormSubmitted = false;
+  bool _isFormSubmitted = false; // Tracks if user clicked "Start Chat"
+  
+  // Connection handling variables
   bool _isConnectionFailed = false;
-  bool _isWakingUp = false;
+  bool _isConnecting = false;
   Timer? _connectionTimer;
 
   int _queuePosition = 0;
@@ -65,7 +67,7 @@ class _SupportScreenState extends State<SupportScreen> {
 
   String _customerId = "";
 
-  // Fixed URL
+  // Server URL
   final String _serverUrl = "https://support-server.onrender.com";
 
   @override
@@ -116,7 +118,6 @@ class _SupportScreenState extends State<SupportScreen> {
   }
 
   Future<void> _initGemini() async {
-    // Ensure you have AppConfig class with your key
     final apiKey = AppConfig.geminiApiKey; 
     
     if (apiKey.isEmpty) {
@@ -290,7 +291,7 @@ TOOLS (Trigger by outputting ONLY the command):
         _messages.clear();
         _addSystemMessage("Switched back to AI Assistant.");
         _isConnectionFailed = false;
-        _isWakingUp = false;
+        _isConnecting = false;
       });
       if (!_aiInitialized) _initGemini();
     } else {
@@ -302,33 +303,48 @@ TOOLS (Trigger by outputting ONLY the command):
         _isLiveSupport = true;
         _messages.clear();
         _isConnectionFailed = false;
-        _isWakingUp = false;
+        _isConnecting = false;
       });
     }
   }
 
   void _startChat() {
-    if (_nameController.text.trim().isEmpty) return;
+    if (_nameController.text.trim().isEmpty) {
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter your name")));
+       return;
+    }
     FocusScope.of(context).unfocus();
     setState(() {
       _isFormSubmitted = true;
       _isConnectionFailed = false;
-      _isWakingUp = false;
+      _isConnecting = true;
     });
     if (_messages.isEmpty) setState(() => _messages.clear());
+    
+    // Attempt Connection
     _connectSocket();
   }
 
   void _endChat() {
-    if (_chatId != null && _isConnected && socket != null) {
+    if (_chatId != null && socket != null && socket!.connected) {
       socket!.emit('end_chat', {'chatId': _chatId});
     }
-    if (_isConnected) socket?.disconnect();
+    
+    // Disconnect
+    if (socket != null) {
+      socket!.disconnect();
+      socket!.dispose();
+    }
 
     _connectionTimer?.cancel();
     setState(() {
-      _isConnected = false; _isAssigned = false; _isFormSubmitted = false;
-      _chatId = null; _queuePosition = 0; _agentName = null; _isWakingUp = false;
+      _isConnected = false; 
+      _isAssigned = false; 
+      _isFormSubmitted = false;
+      _chatId = null; 
+      _queuePosition = 0; 
+      _agentName = null; 
+      _isConnecting = false;
     });
   }
 
@@ -336,10 +352,12 @@ TOOLS (Trigger by outputting ONLY the command):
     if (mounted) {
        setState(() {
          _isConnected = false;
+         _isConnecting = false;
          _isConnectionFailed = true;
-         _isWakingUp = false;
        });
-       // Optional: Notify admin via email if connection completely fails
+       
+       // Fallback: Notify admin via email
+       // Using Email/Phone from form inputs for fallback ONLY
        MagentoAPI().sendSupportFallbackEmail(
          name: _nameController.text,
          email: _emailController.text,
@@ -349,8 +367,9 @@ TOOLS (Trigger by outputting ONLY the command):
     }
   }
 
+  // --- UPDATED SOCKET CONNECTION LOGIC ---
   void _connectSocket() {
-    // 1. Cleanup
+    // 1. Cleanup old sockets
     if (socket != null) {
       socket!.disconnect();
       socket!.dispose();
@@ -358,23 +377,21 @@ TOOLS (Trigger by outputting ONLY the command):
 
     debugPrint("Attempting to connect to: $_serverUrl");
 
-    // 2. Initialize Socket with Robust Options (FORCED WEBSOCKETS)
+    // 2. Initialize Socket with Robust Options (From your working snippet)
+    // IMPORTANT: 'support-sever' typo in origin fixed to match your actual server if needed, 
+    // or kept as in your snippet if that's the specific CORS origin allowed.
+    // Assuming standard origin for now.
     socket = IO.io(_serverUrl, IO.OptionBuilder()
-      .setTransports(['websocket']) // FORCE Websocket (disable polling)
+      .setTransports(['websocket']) // FORCE Websocket
       .disableAutoConnect()
-      .enableForceNew()
-      .setExtraHeaders({
-        'origin': 'https://buynutbolts.com',
-        'Connection': 'Upgrade', 
-        'Upgrade': 'websocket'
-      })
+      .setExtraHeaders({'origin': 'https://support-server.onrender.com'}) 
       .build()
     );
 
     // 3. Connect
     socket!.connect();
 
-    // 4. Handle Render.com "Cold Start"
+    // 4. Handle "Cold Start" Timeout
     _connectionTimer?.cancel();
     _connectionTimer = Timer(const Duration(seconds: 45), () {
       if (mounted && !_isConnected) {
@@ -392,23 +409,15 @@ TOOLS (Trigger by outputting ONLY the command):
         setState(() {
           _isConnected = true;
           _isConnectionFailed = false;
-          _isWakingUp = false;
+          _isConnecting = false;
         });
         
-        // Authenticate immediately
+        // Authenticate immediately using ONLY name and ID as requested
         socket!.emit('customer_joined', {
           'customerId': _customerId,
           'customerName': _nameController.text.trim(),
-          'email': _emailController.text.trim(),
-          'phone': _phoneController.text.trim()
         });
       }
-    });
-
-    socket!.onConnectError((data) {
-      debugPrint('❌ Connection Error: $data');
-      // If "xhr poll error", it confirms polling is blocked, but our 
-      // 'websocket' transport setting should prevent this.
     });
 
     socket!.onDisconnect((_) {
@@ -479,11 +488,11 @@ TOOLS (Trigger by outputting ONLY the command):
         return;
       }
       if (!_isAssigned || _chatId == null) {
-         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Waiting for an agent to join...")));
-         return;
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Waiting for an agent to join...")));
+          return;
       }
 
-      // Emit to server
+      // Emit to server (Using specific payload structure)
       socket!.emit('customer_message', {
         'chatId': _chatId,
         'customerId': _customerId,
@@ -491,8 +500,9 @@ TOOLS (Trigger by outputting ONLY the command):
         'message': text
       });
       
-      // Update UI
-      _messageController.clear();
+      // Update UI locally is usually not needed if server echoes back 'new_message', 
+      // but if your server doesn't echo sender's own msg, uncomment this:
+      /*
       setState(() => _messages.add({
         'type': 'chat',
         'content': text,
@@ -500,6 +510,8 @@ TOOLS (Trigger by outputting ONLY the command):
         'time': DateTime.now()
       }));
       _scrollToBottom();
+      */
+      _messageController.clear();
     }
     // 2. AI / FLOW LOGIC
     else {
@@ -532,8 +544,10 @@ TOOLS (Trigger by outputting ONLY the command):
 
   @override
   void dispose() {
-    socket?.disconnect();
-    socket?.dispose();
+    if (socket != null) {
+        socket!.disconnect();
+        socket!.dispose();
+    }
     _connectionTimer?.cancel();
     _messageController.dispose(); _nameController.dispose();
     _emailController.dispose(); _phoneController.dispose();
@@ -566,7 +580,7 @@ TOOLS (Trigger by outputting ONLY the command):
                        ? "Failed"
                        : (_isConnected && _isAssigned
                            ? "Active"
-                           : (_isWakingUp ? "Waking up..." : "Connecting...")),
+                           : (_isConnecting ? "Connecting..." : "Waiting")),
                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                    ),
                  ),
@@ -579,6 +593,7 @@ TOOLS (Trigger by outputting ONLY the command):
   }
 
   Widget _buildBody() {
+    // Show form if Live Support selected AND not yet submitted
     if (_isLiveSupport && !_isFormSubmitted) return _buildWelcomeScreen();
     return _buildChatInterface();
   }
@@ -596,11 +611,16 @@ TOOLS (Trigger by outputting ONLY the command):
             const SizedBox(height: 10),
             const Text("Please enter your details to join the queue.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
             const SizedBox(height: 30),
+            
+            // Name (Used for Chat)
             TextField(controller: _nameController, decoration: InputDecoration(labelText: "Your Name", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white, prefixIcon: const Icon(Icons.person_outline))),
             const SizedBox(height: 12),
-            TextField(controller: _emailController, keyboardType: TextInputType.emailAddress, decoration: InputDecoration(labelText: "Email", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white, prefixIcon: const Icon(Icons.email_outlined))),
+            
+            // Email/Phone (Used ONLY for fallback email if connection fails)
+            TextField(controller: _emailController, keyboardType: TextInputType.emailAddress, decoration: InputDecoration(labelText: "Email (For fallback)", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white, prefixIcon: const Icon(Icons.email_outlined))),
             const SizedBox(height: 12),
-            TextField(controller: _phoneController, keyboardType: TextInputType.phone, decoration: InputDecoration(labelText: "Phone Number", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white, prefixIcon: const Icon(Icons.phone))),
+            TextField(controller: _phoneController, keyboardType: TextInputType.phone, decoration: InputDecoration(labelText: "Phone (For fallback)", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white, prefixIcon: const Icon(Icons.phone))),
+            
             const SizedBox(height: 20),
             SizedBox(width: double.infinity, height: 50, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), onPressed: _startChat, child: const Text("Start Chat", style: TextStyle(color: Colors.white, fontSize: 16)))),
             TextButton(onPressed: _toggleLiveSupport, child: const Text("Back to AI Assistant"))
@@ -649,7 +669,7 @@ TOOLS (Trigger by outputting ONLY the command):
           if (_isConnectionFailed)
             Container(width: double.infinity, color: Colors.red[100], padding: const EdgeInsets.all(12), child: Column(children: [const Text("Failed to Initialize Live Support", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)), const SizedBox(height: 5), const Text("We have notified the admin with your details.", style: TextStyle(color: Colors.red, fontSize: 12))]))
           else if (!_isConnected)
-            Container(width: double.infinity, color: Colors.orange[100], padding: const EdgeInsets.all(8), child: Text(_isWakingUp ? "Waking up server (this may take 30s)..." : "Connecting to server...", textAlign: TextAlign.center, style: const TextStyle(color: Colors.deepOrange)))
+            Container(width: double.infinity, color: Colors.orange[100], padding: const EdgeInsets.all(8), child: const Text("Connecting to server...", textAlign: TextAlign.center, style: TextStyle(color: Colors.deepOrange)))
           else if (!_isAssigned)
             Container(width: double.infinity, color: Colors.orange[100], padding: const EdgeInsets.all(12), child: Column(children: [const Text("Waiting for an agent...", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)), if (_queuePosition > 0) Text("Position in queue: $_queuePosition", style: const TextStyle(color: Colors.deepOrange))])),
         ],
@@ -728,7 +748,7 @@ TOOLS (Trigger by outputting ONLY the command):
                 child: TextField(
                   controller: _messageController,
                   // Enable logic: Always enabled for AI. For Live Support, only enabled if assigned.
-                  enabled: !_isLiveSupport || _isLiveSupport, 
+                  enabled: !_isLiveSupport || (_isLiveSupport && _isAssigned && _isConnected), 
                   decoration: InputDecoration(
                     hintText: _isLiveSupport ? (_isAssigned ? "Type a message..." : "Waiting for agent...") : (_flowState != null ? "Type your answer..." : "Ask AI about products..."),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(25), borderSide: BorderSide.none),
