@@ -1,5 +1,5 @@
-// lib/screens/support_screen.dart
 import 'dart:async';
+import 'package:bnb/api/client_helper.dart';
 import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 // ignore: library_prefixes
@@ -11,11 +11,11 @@ import 'dart:convert';
 import 'package:flutter_html/flutter_html.dart' hide Content;
 import 'package:url_launcher/url_launcher.dart';
 
+// Ensure these imports match your project structure
 import '../api/magento_api.dart';
-import '../api/client_helper.dart'; 
-import '../models/magento_models.dart'; 
-import '../widgets/product_card.dart'; 
-import 'category_detail_screen.dart'; 
+import '../models/magento_models.dart';
+import '../widgets/product_card.dart';
+import 'category_detail_screen.dart';
 
 class SupportScreen extends StatefulWidget {
   final bool isEmbedded;
@@ -28,18 +28,19 @@ class SupportScreen extends StatefulWidget {
 class _SupportScreenState extends State<SupportScreen> {
   // --- UI STATE ---
   final TextEditingController _messageController = TextEditingController();
-  
+
+  // Contact Details
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
-  
-  final ScrollController _scrollController = ScrollController();
-  
-  final List<Map<String, dynamic>> _messages = [];
-  bool _isLiveSupport = false; 
 
-  // --- LOCAL FLOW STATE ---
-  String? _flowState; 
+  final ScrollController _scrollController = ScrollController();
+
+  final List<Map<String, dynamic>> _messages = [];
+  bool _isLiveSupport = false;
+
+  // --- LOCAL FLOW STATE (For Quick Buttons) ---
+  String? _flowState;
   final Map<String, String> _flowData = {};
 
   // --- AI STATE ---
@@ -49,20 +50,22 @@ class _SupportScreenState extends State<SupportScreen> {
   bool _isLoadingAi = false;
 
   // --- LIVE SUPPORT STATE (Socket.IO) ---
-  // [FIX] Changed from 'late' to nullable to prevent initialization errors
-  IO.Socket? socket; 
+  IO.Socket? socket;
   bool _isConnected = false;
   bool _isAssigned = false;
   bool _isFormSubmitted = false;
-  bool _isConnectionFailed = false; 
+  bool _isConnectionFailed = false;
+  bool _isWakingUp = false;
   Timer? _connectionTimer;
 
   int _queuePosition = 0;
   String? _chatId;
   String? _agentName;
   bool _isAgentTyping = false;
-  
+
   String _customerId = "";
+
+  // Fixed URL
   final String _serverUrl = "https://support-server.onrender.com";
 
   @override
@@ -94,7 +97,7 @@ class _SupportScreenState extends State<SupportScreen> {
     if (mounted) setState(() {});
   }
 
-  // ... (AI Logic remains unchanged) ...
+  // --- AI & Category Helper Methods ---
   String _buildCategoryTree(List<Category> categories) {
     final buffer = StringBuffer();
     for (var cat in categories) {
@@ -113,16 +116,18 @@ class _SupportScreenState extends State<SupportScreen> {
   }
 
   Future<void> _initGemini() async {
-    final apiKey = AppConfig.geminiApiKey;
+    // Ensure you have AppConfig class with your key
+    final apiKey = AppConfig.geminiApiKey; 
+    
     if (apiKey.isEmpty) {
-      _addSystemMessage("System Warning: GEMINI_API_KEY missing or failed to fetch.");
+      _addSystemMessage("System Warning: GEMINI_API_KEY missing.");
       return;
     }
     String categoryContext = "";
     try {
       final cats = await MagentoAPI().fetchCategories();
       final catTree = _buildCategoryTree(cats);
-      categoryContext = catTree.isNotEmpty 
+      categoryContext = catTree.isNotEmpty
           ? "Here is the full list of Categories available in the store:\n$catTree"
           : "Store Categories: Hardware, Nuts, Bolts, Fasteners";
     } catch (e) {
@@ -149,7 +154,7 @@ TOOLS (Trigger by outputting ONLY the command):
 - GENERAL CHAT: Keep it brief.
 """;
     try {
-      _aiModel = GenerativeModel(model: 'gemini-2.5-flash', apiKey: apiKey);
+      _aiModel = GenerativeModel(model: 'gemini-pro', apiKey: apiKey);
       _chatSession = _aiModel.startChat(history: [Content.multi([TextPart(systemPrompt)])]);
       if (mounted) {
         setState(() => _aiInitialized = true);
@@ -179,7 +184,7 @@ TOOLS (Trigger by outputting ONLY the command):
       return;
     }
     if (_flowState != null && _flowState!.startsWith('rfq_')) {
-      if (_flowState == 'rfq_product') { _flowData['product'] = input; setState(() => _flowState = 'rfq_qty'); _addBotMessage("How many pieces?"); } 
+      if (_flowState == 'rfq_product') { _flowData['product'] = input; setState(() => _flowState = 'rfq_qty'); _addBotMessage("How many pieces?"); }
       else if (_flowState == 'rfq_qty') { _flowData['qty'] = input; setState(() => _flowState = 'rfq_name'); _addBotMessage("Your name or company?"); }
       else if (_flowState == 'rfq_name') { _flowData['name'] = input; setState(() => _flowState = 'rfq_email'); _addBotMessage("Your email?"); }
       else if (_flowState == 'rfq_email') { _flowData['email'] = input; setState(() => _flowState = 'rfq_mobile'); _addBotMessage("Your mobile number?"); }
@@ -279,12 +284,13 @@ TOOLS (Trigger by outputting ONLY the command):
 
   void _toggleLiveSupport() {
     if (_isLiveSupport) {
-      _endChat(); 
-      setState(() { 
-        _isLiveSupport = false; 
-        _messages.clear(); 
-        _addSystemMessage("Switched back to AI Assistant."); 
+      _endChat();
+      setState(() {
+        _isLiveSupport = false;
+        _messages.clear();
+        _addSystemMessage("Switched back to AI Assistant.");
         _isConnectionFailed = false;
+        _isWakingUp = false;
       });
       if (!_aiInitialized) _initGemini();
     } else {
@@ -292,32 +298,37 @@ TOOLS (Trigger by outputting ONLY the command):
         _addBotMessage("You're in the middle of another flow. Type 'exit' to cancel it first.");
         return;
       }
-      setState(() { _isLiveSupport = true; _messages.clear(); _isConnectionFailed = false; });
+      setState(() {
+        _isLiveSupport = true;
+        _messages.clear();
+        _isConnectionFailed = false;
+        _isWakingUp = false;
+      });
     }
   }
 
   void _startChat() {
-    if (_nameController.text.trim().isEmpty || _emailController.text.trim().isEmpty) return;
-    FocusScope.of(context).unfocus(); 
-    setState(() { 
+    if (_nameController.text.trim().isEmpty) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
       _isFormSubmitted = true;
-      _isConnectionFailed = false; 
+      _isConnectionFailed = false;
+      _isWakingUp = false;
     });
     if (_messages.isEmpty) setState(() => _messages.clear());
     _connectSocket();
   }
 
   void _endChat() {
-    // [FIX] Use null check operator
     if (_chatId != null && _isConnected && socket != null) {
       socket!.emit('end_chat', {'chatId': _chatId});
     }
     if (_isConnected) socket?.disconnect();
-    
+
     _connectionTimer?.cancel();
     setState(() {
       _isConnected = false; _isAssigned = false; _isFormSubmitted = false;
-      _chatId = null; _queuePosition = 0; _agentName = null;
+      _chatId = null; _queuePosition = 0; _agentName = null; _isWakingUp = false;
     });
   }
 
@@ -326,113 +337,218 @@ TOOLS (Trigger by outputting ONLY the command):
        setState(() {
          _isConnected = false;
          _isConnectionFailed = true;
+         _isWakingUp = false;
        });
+       // Optional: Notify admin via email if connection completely fails
        MagentoAPI().sendSupportFallbackEmail(
          name: _nameController.text,
          email: _emailController.text,
          phone: _phoneController.text,
-         message: "Connection timed out."
+         message: "Connection timed out (Socket Error)."
        );
     }
   }
 
   void _connectSocket() {
-    // [FIX] Cleanup previous socket if exists
-    socket?.disconnect(); 
-    socket?.dispose();
+    // 1. Cleanup
+    if (socket != null) {
+      socket!.disconnect();
+      socket!.dispose();
+    }
 
-    // [FIX] Added 'polling' to transports array to allow auto-upgrade.
-    // This resolves issues where WebSocket upgrade fails immediately.
+    debugPrint("Attempting to connect to: $_serverUrl");
+
+    // 2. Initialize Socket with Robust Options (FORCED WEBSOCKETS)
     socket = IO.io(_serverUrl, IO.OptionBuilder()
-      .setTransports(['websocket', 'polling']) 
+      .setTransports(['websocket']) // FORCE Websocket (disable polling)
       .disableAutoConnect()
-      .setExtraHeaders({'origin': 'https://buynutbolts.com'})
-      .build());
-    
+      .enableForceNew()
+      .setExtraHeaders({
+        'origin': 'https://buynutbolts.com',
+        'Connection': 'Upgrade', 
+        'Upgrade': 'websocket'
+      })
+      .build()
+    );
+
+    // 3. Connect
     socket!.connect();
-    
-    _connectionTimer = Timer(const Duration(seconds: 10), () {
-      if (!_isConnected) {
-        socket?.disconnect();
+
+    // 4. Handle Render.com "Cold Start"
+    _connectionTimer?.cancel();
+    _connectionTimer = Timer(const Duration(seconds: 45), () {
+      if (mounted && !_isConnected) {
+        debugPrint("Connection timed out.");
         _handleConnectionFailure();
       }
     });
 
+    // --- EVENT LISTENERS ---
+
     socket!.onConnect((_) {
+      debugPrint('✅ Socket Connected');
       _connectionTimer?.cancel();
-      if (mounted) setState(() { _isConnected = true; _isConnectionFailed = false; });
-      socket!.emit('customer_joined', { 
-        'customerId': _customerId, 
-        'customerName': _nameController.text.trim(),
-        'email': _emailController.text.trim(), 
-        'phone': _phoneController.text.trim()
-      });
+      if (mounted) {
+        setState(() {
+          _isConnected = true;
+          _isConnectionFailed = false;
+          _isWakingUp = false;
+        });
+        
+        // Authenticate immediately
+        socket!.emit('customer_joined', {
+          'customerId': _customerId,
+          'customerName': _nameController.text.trim(),
+          'email': _emailController.text.trim(),
+          'phone': _phoneController.text.trim()
+        });
+      }
     });
 
-    socket!.onDisconnect((_) { if (mounted) setState(() => _isConnected = false); });
-    socket!.on('queue_update', (data) { if (mounted) setState(() { _queuePosition = data['position'] ?? 0; _isAssigned = false; }); });
+    socket!.onConnectError((data) {
+      debugPrint('❌ Connection Error: $data');
+      // If "xhr poll error", it confirms polling is blocked, but our 
+      // 'websocket' transport setting should prevent this.
+    });
+
+    socket!.onDisconnect((_) {
+      debugPrint('⚠️ Socket Disconnected');
+      if (mounted) setState(() => _isConnected = false);
+    });
+
+    socket!.on('queue_update', (data) {
+      if (mounted) setState(() { _queuePosition = data['position'] ?? 0; _isAssigned = false; });
+    });
+
     socket!.on('assign_agent', (data) {
       if (mounted) {
         setState(() {
-          _isAssigned = true; _chatId = data['chatId']; _agentName = data['agentName'] ?? "Support Agent"; _queuePosition = 0;
+          _isAssigned = true;
+          _chatId = data['chatId'];
+          _agentName = data['agentName'] ?? "Support Agent";
+          _queuePosition = 0;
           _messages.add({ 'type': 'system', 'content': 'You are now connected with $_agentName.', 'time': DateTime.now() });
         });
       }
     });
+
     socket!.on('new_message', (data) {
       final msgData = data['message'];
       if (msgData != null && mounted) {
         setState(() {
-          _messages.add({ 'type': 'chat', 'content': msgData['content'], 'isUser': msgData['sender_type'] == 'customer', 'time': DateTime.parse(msgData['created_at'] ?? DateTime.now().toIso8601String()) });
+          _messages.add({
+            'type': 'chat',
+            'content': msgData['content'],
+            'isUser': msgData['sender_type'] == 'customer',
+            'time': DateTime.parse(msgData['created_at'] ?? DateTime.now().toIso8601String())
+          });
           _isAgentTyping = false;
         });
         _scrollToBottom();
       }
     });
-    socket!.on('typing_indicator', (data) { if (data['senderType'] == 'agent' && mounted) setState(() => _isAgentTyping = data['isTyping'] ?? false); if (_isAgentTyping) _scrollToBottom(); });
-    socket!.on('chat_ended', (_) { if (mounted) setState(() { _messages.add({ 'type': 'system', 'content': 'The chat has been ended by the agent.', 'time': DateTime.now() }); _isAssigned = false; _chatId = null; }); });
+
+    socket!.on('typing_indicator', (data) {
+      if (data['senderType'] == 'agent' && mounted) {
+        setState(() => _isAgentTyping = data['isTyping'] ?? false);
+        if (_isAgentTyping) _scrollToBottom();
+      }
+    });
+
+    socket!.on('chat_ended', (_) {
+      if (mounted) {
+        setState(() {
+          _messages.add({ 'type': 'system', 'content': 'The chat has been ended by the agent.', 'time': DateTime.now() });
+          _isAssigned = false;
+          _chatId = null;
+        });
+      }
+    });
   }
 
-  void _sendLiveMessage(String text) {
-    if (!_isAssigned || _chatId == null || socket == null) return;
-    socket!.emit('customer_message', { 'chatId': _chatId, 'customerId': _customerId, 'customerName': _nameController.text.trim(), 'message': text });
-  }
-
-  // --- UI ---
+  // --- MESSAGE SENDING ---
 
   void _sendMessage() {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
-    _messageController.clear();
-    setState(() => _messages.add({ 'type': 'chat', 'content': text, 'isUser': true, 'time': DateTime.now() }));
-    _scrollToBottom();
-    if (_isLiveSupport) { _sendLiveMessage(text); } 
-    else if (_flowState != null) { _handleFlowInput(text); } 
-    else { _handleAiMessage(text); }
+
+    // 1. LIVE SUPPORT LOGIC
+    if (_isLiveSupport) {
+      if (!_isConnected) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Reconnecting to server...")));
+        return;
+      }
+      if (!_isAssigned || _chatId == null) {
+         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Waiting for an agent to join...")));
+         return;
+      }
+
+      // Emit to server
+      socket!.emit('customer_message', {
+        'chatId': _chatId,
+        'customerId': _customerId,
+        'customerName': _nameController.text.trim(),
+        'message': text
+      });
+      
+      // Update UI
+      _messageController.clear();
+      setState(() => _messages.add({
+        'type': 'chat',
+        'content': text,
+        'isUser': true,
+        'time': DateTime.now()
+      }));
+      _scrollToBottom();
+    }
+    // 2. AI / FLOW LOGIC
+    else {
+      _messageController.clear();
+      setState(() => _messages.add({ 'type': 'chat', 'content': text, 'isUser': true, 'time': DateTime.now() }));
+      _scrollToBottom();
+
+      if (_flowState != null) {
+        _handleFlowInput(text);
+      } else {
+        _handleAiMessage(text);
+      }
+    }
   }
 
   void _addBotMessage(String content) { setState(() => _messages.add({ 'type': 'chat', 'content': content, 'isUser': false, 'time': DateTime.now() })); _scrollToBottom(); }
   void _addSystemMessage(String content) { setState(() => _messages.add({ 'type': 'system', 'content': content, 'time': DateTime.now() })); _scrollToBottom(); }
-  void _scrollToBottom() { WidgetsBinding.instance.addPostFrameCallback((_) { if (_scrollController.hasClients) _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut); }); }
+  
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut
+        );
+      }
+    });
+  }
 
   @override
   void dispose() {
-    // [FIX] cleanup socket reliably
     socket?.disconnect();
     socket?.dispose();
     _connectionTimer?.cancel();
-    _messageController.dispose(); _nameController.dispose(); 
+    _messageController.dispose(); _nameController.dispose();
     _emailController.dispose(); _phoneController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
+  // --- UI CONSTRUCTION ---
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: widget.isEmbedded 
-        ? null 
+      appBar: widget.isEmbedded
+        ? null
         : AppBar(
             title: Text(_isLiveSupport ? "Support" : "AI Assistant"),
             backgroundColor: Colors.white, elevation: 1,
@@ -446,7 +562,11 @@ TOOLS (Trigger by outputting ONLY the command):
                      borderRadius: BorderRadius.circular(20)
                    ),
                    child: Text(
-                     _isConnectionFailed ? "Failed to initialize" : (_isConnected && _isAssigned ? "Active" : "Initializing..."),
+                     _isConnectionFailed
+                       ? "Failed"
+                       : (_isConnected && _isAssigned
+                           ? "Active"
+                           : (_isWakingUp ? "Waking up..." : "Connecting...")),
                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                    ),
                  ),
@@ -525,11 +645,11 @@ TOOLS (Trigger by outputting ONLY the command):
         if (_isLiveSupport) ...[
           if (widget.isEmbedded)
             Container(color: Colors.grey[200], padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [const Text("Support", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)), const Spacer(), TextButton.icon(onPressed: _toggleLiveSupport, icon: const Icon(Icons.logout, color: Colors.red, size: 16), label: const Text("Exit", style: TextStyle(color: Colors.red)))])),
-          
+
           if (_isConnectionFailed)
             Container(width: double.infinity, color: Colors.red[100], padding: const EdgeInsets.all(12), child: Column(children: [const Text("Failed to Initialize Live Support", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)), const SizedBox(height: 5), const Text("We have notified the admin with your details.", style: TextStyle(color: Colors.red, fontSize: 12))]))
           else if (!_isConnected)
-            Container(width: double.infinity, color: Colors.orange[100], padding: const EdgeInsets.all(8), child: const Text("Connecting to server...", textAlign: TextAlign.center, style: TextStyle(color: Colors.deepOrange)))
+            Container(width: double.infinity, color: Colors.orange[100], padding: const EdgeInsets.all(8), child: Text(_isWakingUp ? "Waking up server (this may take 30s)..." : "Connecting to server...", textAlign: TextAlign.center, style: const TextStyle(color: Colors.deepOrange)))
           else if (!_isAssigned)
             Container(width: double.infinity, color: Colors.orange[100], padding: const EdgeInsets.all(12), child: Column(children: [const Text("Waiting for an agent...", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)), if (_queuePosition > 0) Text("Position in queue: $_queuePosition", style: const TextStyle(color: Colors.deepOrange))])),
         ],
@@ -564,7 +684,7 @@ TOOLS (Trigger by outputting ONLY the command):
               }
 
               if (msg['type'] == 'system') return Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Center(child: Text(msg['content'], style: TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic, fontSize: 12))));
-              
+
               return Align(
                 alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
                 child: Container(
@@ -597,13 +717,38 @@ TOOLS (Trigger by outputting ONLY the command):
         ),
         if (_isLoadingAi) const Padding(padding: EdgeInsets.all(8), child: Text("Thinking...", style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic))),
         if (_isAgentTyping) Padding(padding: const EdgeInsets.all(8), child: Text("$_agentName is typing...", style: const TextStyle(color: Colors.grey))),
-        
+
         _buildQuickButtons(),
 
         Container(
           padding: const EdgeInsets.all(10), decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Colors.black12))),
           child: SafeArea(
-            child: Row(children: [Expanded(child: TextField(controller: _messageController, enabled: !_isLiveSupport || (_isAssigned && _isConnected), decoration: InputDecoration(hintText: _isLiveSupport ? (_isAssigned ? "Type a message..." : "Waiting...") : (_flowState != null ? "Type your answer..." : "Ask AI about products..."), border: OutlineInputBorder(borderRadius: BorderRadius.circular(25), borderSide: BorderSide.none), filled: true, fillColor: Colors.grey[100], contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10)), onSubmitted: (_) => _sendMessage())), const SizedBox(width: 8), CircleAvatar(backgroundColor: (!_isLiveSupport || (_isAssigned && _isConnected)) ? const Color(0xFF00599c) : Colors.grey, child: IconButton(icon: const Icon(Icons.send, color: Colors.white, size: 20), onPressed: (!_isLiveSupport || (_isAssigned && _isConnected)) ? _sendMessage : null))]),
+            child: Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: _messageController,
+                  // Enable logic: Always enabled for AI. For Live Support, only enabled if assigned.
+                  enabled: !_isLiveSupport || _isLiveSupport, 
+                  decoration: InputDecoration(
+                    hintText: _isLiveSupport ? (_isAssigned ? "Type a message..." : "Waiting for agent...") : (_flowState != null ? "Type your answer..." : "Ask AI about products..."),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(25), borderSide: BorderSide.none),
+                    filled: true,
+                    fillColor: Colors.grey[100],
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10)
+                  ),
+                  onSubmitted: (_) => _sendMessage()
+                )
+              ),
+              const SizedBox(width: 8),
+              CircleAvatar(
+                backgroundColor: (!_isLiveSupport || (_isAssigned && _isConnected)) ? const Color(0xFF00599c) : Colors.grey,
+                child: IconButton(
+                  icon: const Icon(Icons.send, color: Colors.white, size: 20),
+                  // Disable send button strictly if live support is not ready
+                  onPressed: (!_isLiveSupport || (_isAssigned && _isConnected)) ? _sendMessage : null
+                )
+              )
+            ]),
           ),
         ),
       ],
