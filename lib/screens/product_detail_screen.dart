@@ -6,6 +6,7 @@ import '../models/magento_models.dart';
 import '../providers/cart_provider.dart';
 import '../api/magento_api.dart';
 import 'website_webview_screen.dart'; 
+import 'search_screen.dart'; // Import SearchScreen
 
 class ProductDetailScreen extends StatefulWidget {
   final Product product;
@@ -190,6 +191,24 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Search Bar added here
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: GestureDetector(
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen())),
+                        child: AbsorbPointer( 
+                          child: TextField(
+                            decoration: InputDecoration(
+                              hintText: 'Search for products...',
+                              prefixIcon: const Icon(Icons.search, color: Color(0xFF00599c)),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                              filled: true, fillColor: Colors.grey.shade100,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
                     SizedBox(
                       height: 300, width: double.infinity,
                       child: _currentProduct.imageUrl.isNotEmpty
@@ -321,7 +340,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             ),
           ),
           
-          // [CHANGE] Bottom Bar is now here, part of the Column
+          // Bottom Bar
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
             decoration: BoxDecoration(

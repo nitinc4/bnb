@@ -4,6 +4,7 @@ import '../api/magento_api.dart';
 import '../models/magento_models.dart';
 import '../widgets/product_card.dart';
 import '../widgets/bnb_shimmer.dart'; 
+import 'search_screen.dart'; // Import SearchScreen
 
 class AllProductsScreen extends StatefulWidget {
   const AllProductsScreen({super.key});
@@ -261,42 +262,65 @@ class _AllProductsScreenState extends State<AllProductsScreen> {
             IconButton(icon: const Icon(Icons.filter_list), onPressed: _showFilterDialog),
         ],
       ),
-      body: _products.isEmpty && _isLoading
-          ? BNBShimmer.productGrid()
-          : RefreshIndicator(
-              onRefresh: () => _fetchProducts(refresh: true),
-              child: GridView.builder(
-                physics: const AlwaysScrollableScrollPhysics(),
-                controller: _scrollController,
-                padding: const EdgeInsets.all(8),
-                itemCount: _products.length + (_hasMore ? 1 : 0),
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 135,
-                  crossAxisSpacing: 8, 
-                  mainAxisSpacing: 8, 
-                  childAspectRatio: 0.65, 
+      // Wrapped in Column to add Search Bar at the top
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: GestureDetector(
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen())),
+              child: AbsorbPointer( 
+                child: TextField(
+                  decoration: InputDecoration(
+                    hintText: 'Search for products...',
+                    prefixIcon: const Icon(Icons.search, color: Color(0xFF00599c)),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                    filled: true, fillColor: Colors.grey.shade100,
+                  ),
                 ),
-                itemBuilder: (context, index) {
-                  if (index == _products.length) {
-                    return const Center(child: Padding(
-                      padding: EdgeInsets.all(8.0),
-                      child: CircularProgressIndicator(),
-                    ));
-                  }
-                  final product = _products[index];
-                  return GestureDetector(
-                    onTap: () {
-                      Navigator.pushNamed(context, '/productDetail', arguments: product);
-                    },
-                    child: ProductCard(
-                      name: product.name,
-                      price: product.price.toStringAsFixed(2),
-                      imageUrl: product.imageUrl,
-                    ),
-                  );
-                },
               ),
             ),
+          ),
+          Expanded(
+            child: _products.isEmpty && _isLoading
+              ? BNBShimmer.productGrid()
+              : RefreshIndicator(
+                  onRefresh: () => _fetchProducts(refresh: true),
+                  child: GridView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    controller: _scrollController,
+                    padding: const EdgeInsets.all(8),
+                    itemCount: _products.length + (_hasMore ? 1 : 0),
+                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 135,
+                      crossAxisSpacing: 8, 
+                      mainAxisSpacing: 8, 
+                      childAspectRatio: 0.65, 
+                    ),
+                    itemBuilder: (context, index) {
+                      if (index == _products.length) {
+                        return const Center(child: Padding(
+                          padding: EdgeInsets.all(8.0),
+                          child: CircularProgressIndicator(),
+                        ));
+                      }
+                      final product = _products[index];
+                      return GestureDetector(
+                        onTap: () {
+                          Navigator.pushNamed(context, '/productDetail', arguments: product);
+                        },
+                        child: ProductCard(
+                          name: product.name,
+                          price: product.price.toStringAsFixed(2),
+                          imageUrl: product.imageUrl,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+          ),
+        ],
+      ),
     );
   }
 }

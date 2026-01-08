@@ -4,6 +4,7 @@ import '../models/magento_models.dart';
 import '../api/magento_api.dart';
 import '../widgets/product_card.dart';
 import '../widgets/bnb_shimmer.dart';
+import 'search_screen.dart'; // Import SearchScreen
 
 class CategoryDetailScreen extends StatefulWidget {
   final Category category;
@@ -80,20 +81,15 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
   }
 
   Future<void> _fetchProducts({bool refresh = false}) async {
-    // If refreshing, we do NOT want to return early even if loading,
-    // but we usually want to avoid concurrent refresh.
     if (_isLoading && !refresh) return;
 
     if (refresh) {
-      // [FIX] Do NOT clear _products here. Keeps existing UI visible.
-      // _products.clear(); 
-      // Do NOT set _currentPage here yet, wait for success.
+      // Keep existing data to avoid flicker
     } else {
       setState(() => _isLoading = true);
     }
 
     try {
-      // If refresh, fetch page 1. Else fetch current page.
       final int pageToFetch = refresh ? 1 : _currentPage;
 
       final newProducts = await _api.fetchProducts(
@@ -103,15 +99,14 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
         sortDirection: _sortDirection,
         page: pageToFetch,
         pageSize: _pageSize,
-        refresh: refresh, // [FIX] Pass refresh param
+        refresh: refresh, 
       );
 
       if (mounted) {
         setState(() {
           if (refresh) {
-            // [FIX] Replace list completely
             _products = newProducts;
-            _currentPage = 2; // Next page will be 2
+            _currentPage = 2; 
             _hasMore = newProducts.length >= _pageSize;
           } else {
             if (newProducts.isEmpty) {
@@ -165,7 +160,6 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
     }
   }
 
-  // ... (Filter and Sort methods remain unchanged) ...
   void _showFilterDialog() {
     showModalBottomSheet(
       context: context,
@@ -304,9 +298,32 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
           ],
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _onRefresh,
-        child: hasSubCategories ? _buildSubCategoryGrid() : _buildProductGrid(),
+      // Wrapped in Column for Search Bar
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: GestureDetector(
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen())),
+              child: AbsorbPointer( 
+                child: TextField(
+                  decoration: InputDecoration(
+                    hintText: 'Search for products...',
+                    prefixIcon: const Icon(Icons.search, color: Color(0xFF00599c)),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                    filled: true, fillColor: Colors.grey.shade100,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _onRefresh,
+              child: hasSubCategories ? _buildSubCategoryGrid() : _buildProductGrid(),
+            ),
+          ),
+        ],
       ),
     );
   }

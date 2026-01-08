@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:bnb/api/client_helper.dart';
 import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
@@ -29,10 +30,17 @@ class _SupportScreenState extends State<SupportScreen> {
   // --- UI STATE ---
   final TextEditingController _messageController = TextEditingController();
 
-  // Contact Details (Collected for Fallback, Name used for Chat)
+  // Contact Details
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
+  
+  // OTP State
+  final TextEditingController _otpController = TextEditingController();
+  String? _generatedOtp;
+  
+  // 0: Email, 1: OTP, 2: Details, 3: Waiting (Queue), 4: Active Chat, 5: Fallback/Error
+  int _onboardingStep = 0; 
 
   final ScrollController _scrollController = ScrollController();
 
@@ -53,12 +61,12 @@ class _SupportScreenState extends State<SupportScreen> {
   IO.Socket? socket;
   bool _isConnected = false;
   bool _isAssigned = false;
-  bool _isFormSubmitted = false; // Tracks if user clicked "Start Chat"
   
   // Connection handling variables
   bool _isConnectionFailed = false;
   bool _isConnecting = false;
   Timer? _connectionTimer;
+  Timer? _assignmentTimer; // New timer for 30s wait
 
   int _queuePosition = 0;
   String? _chatId;
@@ -75,6 +83,8 @@ class _SupportScreenState extends State<SupportScreen> {
     super.initState();
     _loadUserIdentity();
     _initGemini();
+    // 1. Connect immediately when screen opens
+    _connectSocket(); 
   }
 
   Future<void> _loadUserIdentity() async {
@@ -155,7 +165,7 @@ TOOLS (Trigger by outputting ONLY the command):
 - GENERAL CHAT: Keep it brief.
 """;
     try {
-      _aiModel = GenerativeModel(model: 'gemini-pro', apiKey: apiKey);
+      _aiModel = GenerativeModel(model: 'gemini-2.5-flash', apiKey: apiKey);
       _chatSession = _aiModel.startChat(history: [Content.multi([TextPart(systemPrompt)])]);
       if (mounted) {
         setState(() => _aiInitialized = true);
@@ -234,6 +244,7 @@ TOOLS (Trigger by outputting ONLY the command):
         _addBotMessage(reply);
       }
     } catch (e) {
+        debugPrint("AI Error: $e");
       _addSystemMessage("AI Error. Please try again.");
     } finally {
       if (mounted) { setState(() => _isLoadingAi = false); _scrollToBottom(); }
@@ -290,8 +301,7 @@ TOOLS (Trigger by outputting ONLY the command):
         _isLiveSupport = false;
         _messages.clear();
         _addSystemMessage("Switched back to AI Assistant.");
-        _isConnectionFailed = false;
-        _isConnecting = false;
+        _onboardingStep = 0; // Reset flow
       });
       if (!_aiInitialized) _initGemini();
     } else {
@@ -302,27 +312,123 @@ TOOLS (Trigger by outputting ONLY the command):
       setState(() {
         _isLiveSupport = true;
         _messages.clear();
-        _isConnectionFailed = false;
-        _isConnecting = false;
+        _onboardingStep = 0; 
       });
     }
   }
 
-  void _startChat() {
-    if (_nameController.text.trim().isEmpty) {
-       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter your name")));
+  // --- OTP & JOIN FLOW ---
+
+  Future<void> _sendOtp() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter a valid email")));
+      return;
+    }
+
+    setState(() => _isLoadingAi = true); // Recycle loading state for UI spinner
+    
+    // Generate 6-digit OTP
+    final rng = Random();
+    _generatedOtp = (100000 + rng.nextInt(900000)).toString();
+
+    final success = await sendSecureEmail(
+      to: email,
+      subject: "BuyNutBolts Support Verification Code",
+      text: "Your verification code for live support is: $_generatedOtp"
+    );
+
+    setState(() => _isLoadingAi = false);
+
+    if (success) {
+      setState(() => _onboardingStep = 1);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("OTP sent to your email.")));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Failed to send OTP. Please try again.")));
+    }
+  }
+
+  void _verifyOtp() {
+    if (_otpController.text.trim() == _generatedOtp) {
+      setState(() => _onboardingStep = 2);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invalid OTP.")));
+    }
+  }
+
+  void _joinQueue() {
+    if (_nameController.text.trim().isEmpty || _phoneController.text.trim().isEmpty) {
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please complete your details")));
        return;
     }
+    
+    if (!_isConnected) {
+      _connectSocket(); // Try connecting again if lost
+    }
+
     FocusScope.of(context).unfocus();
     setState(() {
-      _isFormSubmitted = true;
-      _isConnectionFailed = false;
-      _isConnecting = true;
+      _onboardingStep = 3; // Waiting State
     });
-    if (_messages.isEmpty) setState(() => _messages.clear());
+
+    // 2. Emit Join
+    if (socket != null && socket!.connected) {
+      socket!.emit('customer_joined', {
+        'customerId': _customerId,
+        'customerName': _nameController.text.trim(),
+      });
+    }
+
+    // 3. Start 30s Timeout
+    _assignmentTimer?.cancel();
+    _assignmentTimer = Timer(const Duration(seconds: 30), _handleAssignmentTimeout);
+  }
+
+  Future<void> _handleAssignmentTimeout() async {
+    if (!mounted || _isAssigned) return;
+
+    // Timeout triggered
+    setState(() => _onboardingStep = 5); // Error/Fallback State
     
-    // Attempt Connection
-    _connectSocket();
+    // Fallback: Send emails to admin and user separately
+    
+    // 1. Email to Admin
+    await sendSecureEmail(
+      to: "buynbs.com@gmail.com",
+      subject: "Missed Support Request: ${_nameController.text}",
+      text: """
+User attempted to join live support but no agent was assigned within 30 seconds.
+
+Details:
+Name: ${_nameController.text}
+Email: ${_emailController.text}
+Phone: ${_phoneController.text}
+Customer ID: $_customerId
+
+Please contact them as soon as possible.
+"""
+    );
+
+    // 2. Email to Customer
+    await sendSecureEmail(
+      to: _emailController.text,
+      subject: "Support Request Received - BuyNutBolts",
+      text: """
+Hello ${_nameController.text},
+
+Unfortunately, all our support agents are currently busy.
+We have created a high-priority support ticket for you.
+
+Our team has been notified and will contact you shortly at ${_phoneController.text} or via this email.
+
+Your Details:
+Name: ${_nameController.text}
+Email: ${_emailController.text}
+Phone: ${_phoneController.text}
+
+Thank you for your patience.
+"""
+    );
   }
 
   void _endChat() {
@@ -330,46 +436,21 @@ TOOLS (Trigger by outputting ONLY the command):
       socket!.emit('end_chat', {'chatId': _chatId});
     }
     
-    // Disconnect
-    if (socket != null) {
-      socket!.disconnect();
-      socket!.dispose();
-    }
-
-    _connectionTimer?.cancel();
+    _assignmentTimer?.cancel();
     setState(() {
-      _isConnected = false; 
       _isAssigned = false; 
-      _isFormSubmitted = false;
       _chatId = null; 
       _queuePosition = 0; 
-      _agentName = null; 
-      _isConnecting = false;
+      _agentName = null;
+      _onboardingStep = 0;
     });
-  }
-
-  void _handleConnectionFailure() {
-    if (mounted) {
-       setState(() {
-         _isConnected = false;
-         _isConnecting = false;
-         _isConnectionFailed = true;
-       });
-       
-       // Fallback: Notify admin via email
-       // Using Email/Phone from form inputs for fallback ONLY
-       MagentoAPI().sendSupportFallbackEmail(
-         name: _nameController.text,
-         email: _emailController.text,
-         phone: _phoneController.text,
-         message: "Connection timed out (Socket Error)."
-       );
-    }
   }
 
   // --- UPDATED SOCKET CONNECTION LOGIC ---
   void _connectSocket() {
-    // 1. Cleanup old sockets
+    if (_isConnected) return; // Already connected
+
+    // 1. Cleanup if needed
     if (socket != null) {
       socket!.disconnect();
       socket!.dispose();
@@ -377,12 +458,9 @@ TOOLS (Trigger by outputting ONLY the command):
 
     debugPrint("Attempting to connect to: $_serverUrl");
 
-    // 2. Initialize Socket with Robust Options (From your working snippet)
-    // IMPORTANT: 'support-sever' typo in origin fixed to match your actual server if needed, 
-    // or kept as in your snippet if that's the specific CORS origin allowed.
-    // Assuming standard origin for now.
+    // 2. Initialize Socket
     socket = IO.io(_serverUrl, IO.OptionBuilder()
-      .setTransports(['websocket']) // FORCE Websocket
+      .setTransports(['websocket']) 
       .disableAutoConnect()
       .setExtraHeaders({'origin': 'https://support-server.onrender.com'}) 
       .build()
@@ -390,13 +468,14 @@ TOOLS (Trigger by outputting ONLY the command):
 
     // 3. Connect
     socket!.connect();
+    setState(() => _isConnecting = true);
 
-    // 4. Handle "Cold Start" Timeout
+    // 4. Handle "Cold Start" Timeout for initial connection
     _connectionTimer?.cancel();
     _connectionTimer = Timer(const Duration(seconds: 45), () {
       if (mounted && !_isConnected) {
         debugPrint("Connection timed out.");
-        _handleConnectionFailure();
+        setState(() => _isConnectionFailed = true);
       }
     });
 
@@ -412,11 +491,13 @@ TOOLS (Trigger by outputting ONLY the command):
           _isConnecting = false;
         });
         
-        // Authenticate immediately using ONLY name and ID as requested
-        socket!.emit('customer_joined', {
-          'customerId': _customerId,
-          'customerName': _nameController.text.trim(),
-        });
+        // Re-join if we were waiting
+        if (_onboardingStep == 3) {
+           socket!.emit('customer_joined', {
+            'customerId': _customerId,
+            'customerName': _nameController.text.trim(),
+          });
+        }
       }
     });
 
@@ -431,8 +512,10 @@ TOOLS (Trigger by outputting ONLY the command):
 
     socket!.on('assign_agent', (data) {
       if (mounted) {
+        _assignmentTimer?.cancel(); // Cancel timeout
         setState(() {
           _isAssigned = true;
+          _onboardingStep = 4; // Active Chat State
           _chatId = data['chatId'];
           _agentName = data['agentName'] ?? "Support Agent";
           _queuePosition = 0;
@@ -476,7 +559,6 @@ TOOLS (Trigger by outputting ONLY the command):
   }
 
   // --- MESSAGE SENDING ---
-
   void _sendMessage() {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
@@ -485,32 +567,19 @@ TOOLS (Trigger by outputting ONLY the command):
     if (_isLiveSupport) {
       if (!_isConnected) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Reconnecting to server...")));
+        _connectSocket();
         return;
       }
       if (!_isAssigned || _chatId == null) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Waiting for an agent to join...")));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Waiting for an agent...")));
           return;
       }
-
-      // Emit to server (Using specific payload structure)
       socket!.emit('customer_message', {
         'chatId': _chatId,
         'customerId': _customerId,
         'customerName': _nameController.text.trim(),
         'message': text
       });
-      
-      // Update UI locally is usually not needed if server echoes back 'new_message', 
-      // but if your server doesn't echo sender's own msg, uncomment this:
-      /*
-      setState(() => _messages.add({
-        'type': 'chat',
-        'content': text,
-        'isUser': true,
-        'time': DateTime.now()
-      }));
-      _scrollToBottom();
-      */
       _messageController.clear();
     }
     // 2. AI / FLOW LOGIC
@@ -549,8 +618,10 @@ TOOLS (Trigger by outputting ONLY the command):
         socket!.dispose();
     }
     _connectionTimer?.cancel();
+    _assignmentTimer?.cancel();
     _messageController.dispose(); _nameController.dispose();
     _emailController.dispose(); _phoneController.dispose();
+    _otpController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -564,10 +635,10 @@ TOOLS (Trigger by outputting ONLY the command):
       appBar: widget.isEmbedded
         ? null
         : AppBar(
-            title: Text(_isLiveSupport ? "Support" : "AI Assistant"),
+            title: Text(_isLiveSupport ? "Live Support" : "AI Assistant"),
             backgroundColor: Colors.white, elevation: 1,
             actions: [
-              if (_isLiveSupport)
+              if (_isLiveSupport && _onboardingStep >= 3) 
                  Container(
                    margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -593,37 +664,91 @@ TOOLS (Trigger by outputting ONLY the command):
   }
 
   Widget _buildBody() {
-    // Show form if Live Support selected AND not yet submitted
-    if (_isLiveSupport && !_isFormSubmitted) return _buildWelcomeScreen();
+    if (_isLiveSupport) {
+      if (_onboardingStep < 4) return _buildOnboardingFlow();
+      if (_onboardingStep == 5) return _buildFallbackState();
+    }
     return _buildChatInterface();
   }
 
-  Widget _buildWelcomeScreen() {
+  Widget _buildFallbackState() {
+     return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 60, color: Colors.orange),
+            const SizedBox(height: 20),
+            const Text("No Agents Available", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            Text(
+              "Our agents are currently busy or unavailable. We have sent a support ticket to our team and a copy to ${_emailController.text}.",
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 30),
+            ElevatedButton(
+              onPressed: _toggleLiveSupport,
+              child: const Text("Back to AI Assistant"),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOnboardingFlow() {
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)]), child: const Icon(Icons.support_agent, size: 60, color: Color(0xFF00599c))),
-            const SizedBox(height: 30),
-            const Text("Connect to Live Support", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF00599c))),
-            const SizedBox(height: 10),
-            const Text("Please enter your details to join the queue.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
-            const SizedBox(height: 30),
-            
-            // Name (Used for Chat)
-            TextField(controller: _nameController, decoration: InputDecoration(labelText: "Your Name", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white, prefixIcon: const Icon(Icons.person_outline))),
-            const SizedBox(height: 12),
-            
-            // Email/Phone (Used ONLY for fallback email if connection fails)
-            TextField(controller: _emailController, keyboardType: TextInputType.emailAddress, decoration: InputDecoration(labelText: "Email (For fallback)", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white, prefixIcon: const Icon(Icons.email_outlined))),
-            const SizedBox(height: 12),
-            TextField(controller: _phoneController, keyboardType: TextInputType.phone, decoration: InputDecoration(labelText: "Phone (For fallback)", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white, prefixIcon: const Icon(Icons.phone))),
-            
-            const SizedBox(height: 20),
-            SizedBox(width: double.infinity, height: 50, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), onPressed: _startChat, child: const Text("Start Chat", style: TextStyle(color: Colors.white, fontSize: 16)))),
-            TextButton(onPressed: _toggleLiveSupport, child: const Text("Back to AI Assistant"))
+             Container(padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)]), child: const Icon(Icons.support_agent, size: 60, color: Color(0xFF00599c))),
+             const SizedBox(height: 30),
+             
+             if (_onboardingStep == 0) ...[
+               const Text("Step 1: Verify Email", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+               const SizedBox(height: 10),
+               TextField(controller: _emailController, keyboardType: TextInputType.emailAddress, decoration: InputDecoration(labelText: "Email Address", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white, prefixIcon: const Icon(Icons.email))),
+               const SizedBox(height: 20),
+               if (_isLoadingAi) const CircularProgressIndicator() else
+               SizedBox(width: double.infinity, height: 50, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), onPressed: _sendOtp, child: const Text("Send Verification Code", style: TextStyle(color: Colors.white)))),
+             ]
+             else if (_onboardingStep == 1) ...[
+               const Text("Step 2: Enter OTP", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+               const SizedBox(height: 10),
+               Text("Sent to ${_emailController.text}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+               const SizedBox(height: 20),
+               TextField(controller: _otpController, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: "6-Digit Code", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white, prefixIcon: const Icon(Icons.lock))),
+               const SizedBox(height: 20),
+               SizedBox(width: double.infinity, height: 50, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), onPressed: _verifyOtp, child: const Text("Verify & Continue", style: TextStyle(color: Colors.white)))),
+               TextButton(onPressed: () => setState(() => _onboardingStep = 0), child: const Text("Change Email"))
+             ]
+             else if (_onboardingStep == 2) ...[
+               const Text("Step 3: Contact Details", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+               const SizedBox(height: 10),
+               TextField(controller: _nameController, decoration: InputDecoration(labelText: "Your Name", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white, prefixIcon: const Icon(Icons.person))),
+               const SizedBox(height: 10),
+               TextField(controller: _phoneController, keyboardType: TextInputType.phone, decoration: InputDecoration(labelText: "Phone Number", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white, prefixIcon: const Icon(Icons.phone))),
+               const SizedBox(height: 20),
+               SizedBox(width: double.infinity, height: 50, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00599c), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), onPressed: _joinQueue, child: const Text("Join Live Chat", style: TextStyle(color: Colors.white)))),
+             ]
+             else if (_onboardingStep == 3) ...[
+               // Waiting UI
+               const CircularProgressIndicator(),
+               const SizedBox(height: 20),
+               const Text("Connecting to an agent...", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+               const SizedBox(height: 10),
+               const Text("Please wait while we assign you to a support representative.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+               if (_queuePosition > 0) ...[
+                 const SizedBox(height: 20),
+                 Text("You are #$_queuePosition in the queue.", style: const TextStyle(color: Color(0xFF00599c), fontWeight: FontWeight.bold))
+               ],
+               const SizedBox(height: 30),
+               TextButton(onPressed: _toggleLiveSupport, child: const Text("Cancel & Exit", style: TextStyle(color: Colors.red)))
+             ]
           ],
         ),
       ),
@@ -662,17 +787,9 @@ TOOLS (Trigger by outputting ONLY the command):
   Widget _buildChatInterface() {
     return Column(
       children: [
-        if (_isLiveSupport) ...[
-          if (widget.isEmbedded)
-            Container(color: Colors.grey[200], padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [const Text("Support", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)), const Spacer(), TextButton.icon(onPressed: _toggleLiveSupport, icon: const Icon(Icons.logout, color: Colors.red, size: 16), label: const Text("Exit", style: TextStyle(color: Colors.red)))])),
+        if (_isLiveSupport)
+           Container(color: Colors.grey[200], padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [const Text("Live Support", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)), const Spacer(), TextButton.icon(onPressed: _toggleLiveSupport, icon: const Icon(Icons.logout, color: Colors.red, size: 16), label: const Text("End Chat", style: TextStyle(color: Colors.red)))])),
 
-          if (_isConnectionFailed)
-            Container(width: double.infinity, color: Colors.red[100], padding: const EdgeInsets.all(12), child: Column(children: [const Text("Failed to Initialize Live Support", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)), const SizedBox(height: 5), const Text("We have notified the admin with your details.", style: TextStyle(color: Colors.red, fontSize: 12))]))
-          else if (!_isConnected)
-            Container(width: double.infinity, color: Colors.orange[100], padding: const EdgeInsets.all(8), child: const Text("Connecting to server...", textAlign: TextAlign.center, style: TextStyle(color: Colors.deepOrange)))
-          else if (!_isAssigned)
-            Container(width: double.infinity, color: Colors.orange[100], padding: const EdgeInsets.all(12), child: Column(children: [const Text("Waiting for an agent...", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)), if (_queuePosition > 0) Text("Position in queue: $_queuePosition", style: const TextStyle(color: Colors.deepOrange))])),
-        ],
         Expanded(
           child: ListView.builder(
             controller: _scrollController, padding: const EdgeInsets.all(16), itemCount: _messages.length,
@@ -735,7 +852,7 @@ TOOLS (Trigger by outputting ONLY the command):
             },
           ),
         ),
-        if (_isLoadingAi) const Padding(padding: EdgeInsets.all(8), child: Text("Thinking...", style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic))),
+        if (_isLoadingAi && !_isLiveSupport) const Padding(padding: EdgeInsets.all(8), child: Text("Thinking...", style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic))),
         if (_isAgentTyping) Padding(padding: const EdgeInsets.all(8), child: Text("$_agentName is typing...", style: const TextStyle(color: Colors.grey))),
 
         _buildQuickButtons(),
@@ -747,7 +864,6 @@ TOOLS (Trigger by outputting ONLY the command):
               Expanded(
                 child: TextField(
                   controller: _messageController,
-                  // Enable logic: Always enabled for AI. For Live Support, only enabled if assigned.
                   enabled: !_isLiveSupport || (_isLiveSupport && _isAssigned && _isConnected), 
                   decoration: InputDecoration(
                     hintText: _isLiveSupport ? (_isAssigned ? "Type a message..." : "Waiting for agent...") : (_flowState != null ? "Type your answer..." : "Ask AI about products..."),
@@ -764,7 +880,6 @@ TOOLS (Trigger by outputting ONLY the command):
                 backgroundColor: (!_isLiveSupport || (_isAssigned && _isConnected)) ? const Color(0xFF00599c) : Colors.grey,
                 child: IconButton(
                   icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                  // Disable send button strictly if live support is not ready
                   onPressed: (!_isLiveSupport || (_isAssigned && _isConnected)) ? _sendMessage : null
                 )
               )

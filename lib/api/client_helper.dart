@@ -86,3 +86,42 @@ Future<void> fetchAndSetConfig() async {
     // Ideally handle error (e.g., show retry dialog in UI)
   }
 }
+
+/// Sends a secure email via the server's nodemailer integration.
+/// Used for OTP verification and Fallback support tickets.
+Future<bool> sendSecureEmail({
+  required String to,
+  required String subject,
+  required String text,
+}) async {
+  try {
+    final secureHeader = _generateSecureHeader();
+    debugPrint("Sending secure email to $to...");
+
+    final body = {
+      'to': to,
+      'subject': subject,
+      'text': text,
+    };
+
+    final response = await http.post(
+      Uri.parse('$_serverUrl/api/send-email'),
+      headers: {
+        'x-secure-date': secureHeader,
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(body),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data['success'] == true;
+    } else {
+      debugPrint("Email failed: ${response.statusCode} - ${response.body}");
+      return false;
+    }
+  } catch (e) {
+    debugPrint("Error sending email: $e");
+    return false;
+  }
+}
