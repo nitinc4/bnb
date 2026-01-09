@@ -242,34 +242,67 @@ class MagentoAPI {
     final cleanQuery = query.trim();
     if (cleanQuery.isEmpty) return [];
 
+    // 1. Try Strict Search (Keywords ANDed)
+    List<Product> results = await _executeSearchRequest(cleanQuery, pageSize, strict: true);
+
+    // 2. Fallback to Loose Search if strict returned nothing and there are multiple words
+    if (results.isEmpty && cleanQuery.contains(' ')) {
+      debugPrint("Strict search failed, trying loose search for: $cleanQuery");
+      results = await _executeSearchRequest(cleanQuery, pageSize, strict: false);
+    }
+
+    return results;
+  }
+
+  Future<List<Product>> _executeSearchRequest(String query, int pageSize, {bool strict = true}) async {
     try {
-      final Map<String, String> queryParams = {
+      final Map<String, String> params = {
         "searchCriteria[pageSize]": pageSize.toString(),
         "searchCriteria[currentPage]": "1"
       };
 
-      final words = cleanQuery.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
-      int groupIndex = 0;
+      final words = query.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
       
-      for (var word in words) {
-        queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][field]"] = "name";
-        queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][value]"] = "%$word%";
-        queryParams["searchCriteria[filter_groups][$groupIndex][filters][0][condition_type]"] = "like";
+      if (strict) {
+        // Strict (AND): Each word gets its own Filter Group.
+        // Within group: Name LIKE word OR SKU LIKE word.
+        // Result must satisfy Group 1 AND Group 2 ...
+        int groupIndex = 0;
+        for (var word in words) {
+          params["searchCriteria[filter_groups][$groupIndex][filters][0][field]"] = "name";
+          params["searchCriteria[filter_groups][$groupIndex][filters][0][value]"] = "%$word%";
+          params["searchCriteria[filter_groups][$groupIndex][filters][0][condition_type]"] = "like";
 
-        queryParams["searchCriteria[filter_groups][$groupIndex][filters][1][field]"] = "sku";
-        queryParams["searchCriteria[filter_groups][$groupIndex][filters][1][value]"] = "%$word%";
-        queryParams["searchCriteria[filter_groups][$groupIndex][filters][1][condition_type]"] = "like";
-
-        groupIndex++;
+          params["searchCriteria[filter_groups][$groupIndex][filters][1][field]"] = "sku";
+          params["searchCriteria[filter_groups][$groupIndex][filters][1][value]"] = "%$word%";
+          params["searchCriteria[filter_groups][$groupIndex][filters][1][condition_type]"] = "like";
+          
+          groupIndex++;
+        }
+      } else {
+        // Loose (OR): One Filter Group for ALL words.
+        // Result must satisfy (Word1 Name OR Word1 SKU OR Word2 Name ...)
+        int filterIndex = 0;
+        for (var word in words) {
+           params["searchCriteria[filter_groups][0][filters][$filterIndex][field]"] = "name";
+           params["searchCriteria[filter_groups][0][filters][$filterIndex][value]"] = "%$word%";
+           params["searchCriteria[filter_groups][0][filters][$filterIndex][condition_type]"] = "like";
+           filterIndex++;
+           
+           params["searchCriteria[filter_groups][0][filters][$filterIndex][field]"] = "sku";
+           params["searchCriteria[filter_groups][0][filters][$filterIndex][value]"] = "%$word%";
+           params["searchCriteria[filter_groups][0][filters][$filterIndex][condition_type]"] = "like";
+           filterIndex++;
+        }
       }
 
-      final response = await _oauthClient.get("/products", params: queryParams);
+      final response = await _oauthClient.get("/products", params: params);
       if (response.statusCode == 200) {
         final items = (jsonDecode(response.body)["items"] as List? ?? []);
         return items.map((e) => Product.fromJson(e)).toList();
       }
     } catch (e) {
-      debugPrint("Search Products Error: $e");
+      debugPrint("Search Exec Error (strict=$strict): $e");
     }
     return [];
   }

@@ -73,7 +73,7 @@ Future<void> fetchAndSetConfig() async {
         AppConfig.accessToken = keys['accessToken'] ?? "";
         AppConfig.accessTokenSecret = keys['accessTokenSecret'] ?? "";
         AppConfig.geminiApiKey = keys['geminiApiKey'] ?? "";
-        AppConfig.rfqUrl = keys['rfqUrl'] ?? "";
+        AppConfig.rfqUrl = keys['rfqUrl'] ?? "https://rfq.buynutbolts.com/api/rfq_ingest.php";
         AppConfig.rfqToken = keys['rfqToken'] ?? "";
 
         debugPrint("Configuration loaded successfully.");

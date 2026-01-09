@@ -40,6 +40,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _save() async {
+    // [VALIDATION]
+    final email = _emailCtrl.text.trim();
+    if (!RegExp(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").hasMatch(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter a valid email address")));
+      return;
+    }
+
     setState(() => _isLoading = true);
     final api = MagentoAPI();
 
@@ -47,7 +54,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     bool profileSuccess = await api.updateCustomerProfile({
       "firstname": _fNameCtrl.text,
       "lastname": _lNameCtrl.text,
-      "email": _emailCtrl.text,
+      "email": email,
     });
 
     // Change Password 

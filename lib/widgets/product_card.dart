@@ -52,7 +52,7 @@ class ProductCard extends StatelessWidget {
           // [CHANGE] Use Expanded to let text fill the rest of the vertical space
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.all(8), // Slightly increased padding for better spacing
+              padding: const EdgeInsets.all(6), // Slightly increased padding for better spacing
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.spaceBetween, // Distribute space

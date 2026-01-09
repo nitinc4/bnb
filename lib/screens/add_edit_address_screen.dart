@@ -84,7 +84,11 @@ class _AddEditAddressScreenState extends State<AddEditAddressScreen> {
             children: [
               _field("First Name", _fNameCtrl),
               _field("Last Name", _lNameCtrl),
-              _field("Phone", _phoneCtrl, type: TextInputType.phone),
+              _field("Phone", _phoneCtrl, type: TextInputType.phone, validator: (v) {
+                if (v == null || v.isEmpty) return "Required";
+                if (!RegExp(r'^[0-9]{10}$').hasMatch(v)) return "Enter a valid 10-digit number";
+                return null;
+              }),
               _field("Street Address", _streetCtrl),
               Row(children: [
                 Expanded(child: _field("City", _cityCtrl)),
@@ -102,10 +106,15 @@ class _AddEditAddressScreenState extends State<AddEditAddressScreen> {
     );
   }
 
-  Widget _field(String label, TextEditingController ctrl, {TextInputType type = TextInputType.text}) {
+  Widget _field(String label, TextEditingController ctrl, {TextInputType type = TextInputType.text, String? Function(String?)? validator}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: TextFormField(controller: ctrl, keyboardType: type, decoration: InputDecoration(labelText: label, border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), filled: true, fillColor: Colors.grey.shade50), validator: (v) => v!.isEmpty ? "Required" : null),
+      child: TextFormField(
+        controller: ctrl, 
+        keyboardType: type, 
+        decoration: InputDecoration(labelText: label, border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), filled: true, fillColor: Colors.grey.shade50), 
+        validator: validator ?? (v) => v!.isEmpty ? "Required" : null
+      ),
     );
   }
 }

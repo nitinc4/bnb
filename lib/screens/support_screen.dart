@@ -78,6 +78,10 @@ class _SupportScreenState extends State<SupportScreen> {
   // Server URL
   final String _serverUrl = "https://support-server.onrender.com";
 
+  // --- VALIDATION REGEX ---
+  final RegExp _emailRegex = RegExp(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$");
+  final RegExp _phoneRegex = RegExp(r'^[0-9]{10}$');
+
   @override
   void initState() {
     super.initState();
@@ -189,18 +193,31 @@ TOOLS (Trigger by outputting ONLY the command):
   void _startSuggestFlow() { setState(() { _flowState = 'ai_suggest'; _flowData.clear(); }); _addBotMessage("Describe your requirement and I will suggest products."); }
 
   Future<void> _handleFlowInput(String input) async {
-    if (input.toLowerCase() == 'exit') {
+    final cleanInput = input.trim();
+    if (cleanInput.toLowerCase() == 'exit') {
       setState(() { _flowState = null; _flowData.clear(); });
       _addBotMessage("Okay, I've exited the current action.");
       return;
     }
     if (_flowState != null && _flowState!.startsWith('rfq_')) {
-      if (_flowState == 'rfq_product') { _flowData['product'] = input; setState(() => _flowState = 'rfq_qty'); _addBotMessage("How many pieces?"); }
-      else if (_flowState == 'rfq_qty') { _flowData['qty'] = input; setState(() => _flowState = 'rfq_name'); _addBotMessage("Your name or company?"); }
-      else if (_flowState == 'rfq_name') { _flowData['name'] = input; setState(() => _flowState = 'rfq_email'); _addBotMessage("Your email?"); }
-      else if (_flowState == 'rfq_email') { _flowData['email'] = input; setState(() => _flowState = 'rfq_mobile'); _addBotMessage("Your mobile number?"); }
+      if (_flowState == 'rfq_product') { _flowData['product'] = cleanInput; setState(() => _flowState = 'rfq_qty'); _addBotMessage("How many pieces?"); }
+      else if (_flowState == 'rfq_qty') { _flowData['qty'] = cleanInput; setState(() => _flowState = 'rfq_name'); _addBotMessage("Your name or company?"); }
+      else if (_flowState == 'rfq_name') { _flowData['name'] = cleanInput; setState(() => _flowState = 'rfq_email'); _addBotMessage("Your email?"); }
+      else if (_flowState == 'rfq_email') { 
+        if (!_emailRegex.hasMatch(cleanInput)) {
+          _addBotMessage("❌ Invalid email format. Please enter a valid email (e.g., name@example.com).");
+          return;
+        }
+        _flowData['email'] = cleanInput; 
+        setState(() => _flowState = 'rfq_mobile'); 
+        _addBotMessage("Your mobile number (10 digits)?"); 
+      }
       else if (_flowState == 'rfq_mobile') {
-        _flowData['mobile'] = input;
+        if (!_phoneRegex.hasMatch(cleanInput)) {
+          _addBotMessage("❌ Invalid number. Please enter a valid 10-digit phone number.");
+          return;
+        }
+        _flowData['mobile'] = cleanInput;
         setState(() { _flowState = null; _isLoadingAi = true; });
         await _performRfqSubmit(_flowData['product']!, _flowData['qty']!, _flowData['name']!, _flowData['email']!, _flowData['mobile']!);
         setState(() => _isLoadingAi = false);
@@ -208,9 +225,13 @@ TOOLS (Trigger by outputting ONLY the command):
       return;
     }
     if (_flowState != null && _flowState!.startsWith('order_')) {
-      if (_flowState == 'order_id') { _flowData['order_id'] = input; setState(() => _flowState = 'order_email'); _addBotMessage("Enter the email used for this order:"); }
+      if (_flowState == 'order_id') { _flowData['order_id'] = cleanInput; setState(() => _flowState = 'order_email'); _addBotMessage("Enter the email used for this order:"); }
       else if (_flowState == 'order_email') {
-        _flowData['email'] = input;
+        if (!_emailRegex.hasMatch(cleanInput)) {
+           _addBotMessage("❌ Invalid email format. Please try again.");
+           return;
+        }
+        _flowData['email'] = cleanInput;
         setState(() { _flowState = null; _isLoadingAi = true; });
         await _performOrderCheck(_flowData['order_id']!, _flowData['email']!);
         setState(() => _isLoadingAi = false);
@@ -219,13 +240,13 @@ TOOLS (Trigger by outputting ONLY the command):
     }
     if (_flowState == 'product_search') {
       setState(() { _flowState = null; _isLoadingAi = true; });
-      await _performProductSearch(input);
+      await _performProductSearch(cleanInput);
       setState(() => _isLoadingAi = false);
       return;
     }
     if (_flowState == 'ai_suggest') {
        setState(() { _flowState = null; _isLoadingAi = true; });
-      await _handleAiMessage("Suggest products for: $input");
+      await _handleAiMessage("Suggest products for: $cleanInput");
       return;
     }
   }
@@ -252,13 +273,15 @@ TOOLS (Trigger by outputting ONLY the command):
   }
 
   // --- TOOLS IMPL ---
-  Future<void> _performProductSearch(String query) async {
+Future<void> _performProductSearch(String query) async {
     _addBotMessage("🔍 Searching for '$query'...");
     final products = await MagentoAPI().searchProducts(query.trim());
+    
     if (products.isEmpty) {
       _addBotMessage("I searched for '$query' but found nothing matching.");
       return;
     }
+
     setState(() {
       _messages.add({
         'type': 'product_list',
@@ -286,9 +309,9 @@ TOOLS (Trigger by outputting ONLY the command):
       product: prod.trim(), quantity: qty.trim(), name: name.trim(), email: email.trim(), mobile: mobile.trim()
     );
     if (result['success'] == true) {
-      _addBotMessage("✅ <b>RFQ Submitted!</b><br>${result['message']}");
+      _addBotMessage("<b>RFQ Submitted!</b><br>${result['message']}");
     } else {
-      _addBotMessage("❌ Failed: ${result['message']}");
+      _addBotMessage("RFQ Failed: ${result['message']}");
     }
   }
 
@@ -321,8 +344,10 @@ TOOLS (Trigger by outputting ONLY the command):
 
   Future<void> _sendOtp() async {
     final email = _emailController.text.trim();
-    if (email.isEmpty || !email.contains('@')) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter a valid email")));
+    
+    // [VALIDATION]
+    if (email.isEmpty || !_emailRegex.hasMatch(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter a valid email address")));
       return;
     }
 
@@ -357,8 +382,17 @@ TOOLS (Trigger by outputting ONLY the command):
   }
 
   void _joinQueue() {
-    if (_nameController.text.trim().isEmpty || _phoneController.text.trim().isEmpty) {
-       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please complete your details")));
+    final name = _nameController.text.trim();
+    final phone = _phoneController.text.trim();
+
+    if (name.isEmpty) {
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter your name")));
+       return;
+    }
+    
+    // [VALIDATION]
+    if (phone.isEmpty || !_phoneRegex.hasMatch(phone)) {
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter a valid 10-digit phone number")));
        return;
     }
     
@@ -375,7 +409,7 @@ TOOLS (Trigger by outputting ONLY the command):
     if (socket != null && socket!.connected) {
       socket!.emit('customer_joined', {
         'customerId': _customerId,
-        'customerName': _nameController.text.trim(),
+        'customerName': name,
       });
     }
 

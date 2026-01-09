@@ -20,12 +20,22 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _obscurePassword = true; // [CHANGE] Added State
 
   Future<void> _handleSignup() async {
+    final email = _emailController.text.trim();
+    
     if (_firstNameController.text.isEmpty || 
         _lastNameController.text.isEmpty || 
-        _emailController.text.isEmpty || 
+        email.isEmpty || 
         _passwordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("All fields are required")),
+      );
+      return;
+    }
+
+    // [VALIDATION]
+    if (!RegExp(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").hasMatch(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please enter a valid email address")),
       );
       return;
     }
@@ -36,7 +46,7 @@ class _SignupScreenState extends State<SignupScreen> {
     bool success = await api.createCustomer(
       _firstNameController.text.trim(),
       _lastNameController.text.trim(),
-      _emailController.text.trim(),
+      email,
       _passwordController.text.trim(),
     );
 
