@@ -12,7 +12,6 @@ import 'dart:convert';
 import 'package:flutter_html/flutter_html.dart' hide Content;
 import 'package:url_launcher/url_launcher.dart';
 
-// Ensure these imports match your project structure
 import '../api/magento_api.dart';
 import '../models/magento_models.dart';
 import '../widgets/product_card.dart';
@@ -66,7 +65,7 @@ class _SupportScreenState extends State<SupportScreen> {
   bool _isConnectionFailed = false;
   bool _isConnecting = false;
   Timer? _connectionTimer;
-  Timer? _assignmentTimer; // New timer for 30s wait
+  Timer? _assignmentTimer; 
 
   int _queuePosition = 0;
   String? _chatId;
@@ -272,7 +271,6 @@ TOOLS (Trigger by outputting ONLY the command):
     }
   }
 
-  // --- TOOLS IMPL ---
 Future<void> _performProductSearch(String query) async {
     _addBotMessage("🔍 Searching for '$query'...");
     final products = await MagentoAPI().searchProducts(query.trim());
@@ -413,7 +411,6 @@ Future<void> _performProductSearch(String query) async {
       });
     }
 
-    // 3. Start 30s Timeout
     _assignmentTimer?.cancel();
     _assignmentTimer = Timer(const Duration(seconds: 30), _handleAssignmentTimeout);
   }
@@ -424,7 +421,6 @@ Future<void> _performProductSearch(String query) async {
     // Timeout triggered
     setState(() => _onboardingStep = 5); // Error/Fallback State
     
-    // Fallback: Send emails to admin and user separately
     
     // 1. Email to Admin
     await sendSecureEmail(

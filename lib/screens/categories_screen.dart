@@ -13,13 +13,11 @@ class CategoriesScreen extends StatefulWidget {
 }
 
 class _CategoriesScreenState extends State<CategoriesScreen> {
-  // [FIX] Changed type from Future<void>? to Future<List<Category>>?
   Future<List<Category>>? _refreshFuture;
 
   Future<void> _handleRefresh() async {
     await MagentoAPI().clearCache();
     setState(() {
-      // This returns Future<List<Category>>, matching the variable type now
       _refreshFuture = MagentoAPI().fetchCategories(refresh: true); 
     });
     await _refreshFuture;

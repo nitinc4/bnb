@@ -17,7 +17,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final _passwordController = TextEditingController();
   
   bool _isLoading = false;
-  bool _obscurePassword = true; // [CHANGE] Added State
+  bool _obscurePassword = true; 
 
   Future<void> _handleSignup() async {
     final email = _emailController.text.trim();
@@ -32,7 +32,6 @@ class _SignupScreenState extends State<SignupScreen> {
       return;
     }
 
-    // [VALIDATION]
     if (!RegExp(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").hasMatch(email)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Please enter a valid email address")),

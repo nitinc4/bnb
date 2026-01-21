@@ -363,11 +363,6 @@ class MagentoAPI {
     bool isFirstPage = page == 1;
     bool isAllProducts = categoryId == null;
 
-    // [FIX] Smart Cache Logic:
-    // Only return cached data if:
-    // 1. Not refreshing
-    // 2. Cache exists
-    // 3. Cache has enough items to satisfy the requested pageSize
     if (!refresh && isAllProducts && isFirstPage && !hasFilters && isDefaultSort) {
        if (cachedProducts.isNotEmpty && cachedProducts.length >= pageSize) return cachedProducts;
     }
@@ -375,8 +370,6 @@ class MagentoAPI {
     if (!refresh && categoryId != null && isFirstPage && !hasFilters && isDefaultSort) {
       if (categoryProductsCache.containsKey(categoryId)) {
         final cached = categoryProductsCache[categoryId]!;
-        // [IMPORTANT] Ignore cache if it's smaller than requested page size
-        // This fixes the bug where Home Screen caches 10 items, causing Detail Screen to think there are only 10 items.
         if (cached.isNotEmpty && cached.length >= pageSize) {
           return cached;
         }

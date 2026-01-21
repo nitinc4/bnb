@@ -82,7 +82,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // [UPDATED] Forgot Password Dialog
   void _showForgotPasswordDialog() {
     final emailResetCtrl = TextEditingController();
     
@@ -220,7 +219,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// [NEW] Helper Widget to manage dialog state correctly
 class _ForgotPasswordContent extends StatefulWidget {
   @override
   State<_ForgotPasswordContent> createState() => _ForgotPasswordContentState();
@@ -247,7 +245,6 @@ class _ForgotPasswordContentState extends State<_ForgotPasswordContent> {
       return;
     }
     
-    // Immediate Feedback
     setState(() {
       _isSending = true;
       _statusMessage = "Sending request...";

@@ -153,7 +153,6 @@ class Product {
   }
 }
 
-// ... (Rest of the file: Category, OrderItem, Order, CartItem, AttributeOption, ProductAttribute remain unchanged)
 class Category {
   final int id;
   final String name;

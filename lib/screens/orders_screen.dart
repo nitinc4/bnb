@@ -17,7 +17,6 @@ class _OrdersScreenState extends State<OrdersScreen> {
   @override
   void initState() {
     super.initState();
-    // Fetch up to 20 recent orders
     _ordersFuture = MagentoAPI().fetchOrders(widget.userEmail, pageSize: 20);
   }
 

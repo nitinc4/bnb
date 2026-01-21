@@ -126,7 +126,6 @@ class HomeTab extends StatefulWidget {
 }
 
 class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
-  // [FIX] Use List variable instead of FutureBuilder to control update timing
   List<Category>? _categories;
 
   @override
@@ -294,7 +293,6 @@ class _CategoryProductRowState extends State<CategoryProductRow> {
 
   @override
   Widget build(BuildContext context) {
-    // [FIX] Prioritize cache if available, even if future is pending re-fetch
     final cachedProducts = MagentoAPI.categoryProductsCache[widget.category.id];
     
     return FutureBuilder<List<Product>>(

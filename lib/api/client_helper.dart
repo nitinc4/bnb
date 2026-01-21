@@ -17,9 +17,9 @@ class AppConfig {
   static bool get isLoaded => consumerKey.isNotEmpty;
 }
 
-// The fixed verification phrase (Must match server)
+// verification phrase (Must match server)
 const String _verificationPhrase = "BNB_SECURE_ACCESS";
-// Your Vercel Server URL
+// Vercel Server URL
 const String _serverUrl = "https://secuserv-7w95.vercel.app";
 
 String _getCurrentDateString() {
@@ -83,7 +83,7 @@ Future<void> fetchAndSetConfig() async {
     }
   } catch (e) {
     debugPrint("Error fetching config: $e");
-    // Ideally handle error (e.g., show retry dialog in UI)
+    // Error handeler
   }
 }
 

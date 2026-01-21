@@ -21,7 +21,6 @@ class OrderDetailScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Card
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
@@ -37,7 +36,6 @@ class OrderDetailScreen extends StatelessWidget {
             ),
             const SizedBox(height: 20),
 
-            // Items List
             const Text("Items Ordered", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
             ...order.items.map((item) => Card(

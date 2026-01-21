@@ -6,7 +6,7 @@ import '../models/magento_models.dart';
 import '../providers/cart_provider.dart';
 import '../api/magento_api.dart';
 import 'website_webview_screen.dart'; 
-import 'search_screen.dart'; // Import SearchScreen
+import 'search_screen.dart'; 
 
 class ProductDetailScreen extends StatefulWidget {
   final Product product;
@@ -161,7 +161,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      resizeToAvoidBottomInset: true, // Allows the body to resize when keyboard opens
+      resizeToAvoidBottomInset: true, 
       appBar: AppBar(
         title: Text(_currentProduct.name, style: const TextStyle(fontSize: 16)),
         actions: [
@@ -179,7 +179,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           )
         ],
       ),
-      // [CHANGE] Use Column layout so the bottom bar pushes up with the keyboard
       body: Column(
         children: [
           // Scrollable Content

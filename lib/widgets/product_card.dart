@@ -31,7 +31,6 @@ class ProductCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // [CHANGE] Used AspectRatio to force square image (1:1 ratio)
           AspectRatio(
             aspectRatio: 1.0,
             child: ClipRRect(
@@ -49,7 +48,6 @@ class ProductCard extends StatelessWidget {
               ),
             ),
           ),
-          // [CHANGE] Use Expanded to let text fill the rest of the vertical space
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(6), // Slightly increased padding for better spacing

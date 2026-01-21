@@ -5,7 +5,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 class WebsiteWebViewScreen extends StatefulWidget {
   final String url;
   final String title;
-  final Map<String, String>? headers; // [FIX] Accept headers
+  final Map<String, String>? headers; 
 
   const WebsiteWebViewScreen({
     super.key, 
@@ -61,7 +61,6 @@ class _WebsiteWebViewScreenState extends State<WebsiteWebViewScreen> {
           },
         ),
       )
-      // [FIX] Load request with headers
       ..loadRequest(Uri.parse(widget.url), headers: widget.headers ?? {});
   }
 

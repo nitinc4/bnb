@@ -38,7 +38,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadAllData() async {
     setState(() => _isLoading = true);
     
-    // [FIX] Removed unused 'prefs' declaration here
     final token = await _storage.read(key: 'customer_token');
 
     if (token != null && token.isNotEmpty) {

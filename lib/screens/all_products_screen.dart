@@ -4,7 +4,7 @@ import '../api/magento_api.dart';
 import '../models/magento_models.dart';
 import '../widgets/product_card.dart';
 import '../widgets/bnb_shimmer.dart'; 
-import 'search_screen.dart'; // Import SearchScreen
+import 'search_screen.dart'; 
 
 class AllProductsScreen extends StatefulWidget {
   const AllProductsScreen({super.key});
@@ -20,7 +20,6 @@ class _AllProductsScreenState extends State<AllProductsScreen> {
   bool _isLoading = false;
   int _currentPage = 1;
   bool _hasMore = true;
-  // [FIX] Increased pageSize to 50 for robust scrolling on larger screens
   final int _pageSize = 50; 
   
   final ScrollController _scrollController = ScrollController();
@@ -42,7 +41,6 @@ class _AllProductsScreenState extends State<AllProductsScreen> {
   }
 
   void _onScroll() {
-    // [FIX] Increased threshold to 200
     if (_scrollController.hasClients && 
         _scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
       if (!_isLoading && _hasMore) {
