@@ -1,129 +1,154 @@
 
 ---
 
-# BuyNutBolts (BNB) Mobile Application Documentation
+# BuyNutBolts (BNB) Technical Reference Manual
 
 **Version:** 1.0.0
-**Framework:** Flutter (Dart SDK ^3.7.0)
-**Backend:** Magento 2 (via REST API) & Vercel Middleware
+**Framework:** Flutter (Dart 3.7.0+)
+**Backend:** Magento 2 (REST API) & Vercel Middleware
+**Architecture:** Layered (MVVM-style with Providers)
 
 ---
 
-## 1. Project Overview
+## 1. Security Architecture (Deep Dive)
 
-The **BNB App** is a specialized B2B/B2C e-commerce mobile application designed for the sale of industrial fasteners. Built with Flutter, it interacts with a Magento 2 backend for commerce operations and a custom Vercel middleware for secure key management.
+The application employs a "Zero-Trust" configuration model. Sensitive credentials are never stored in the binary. Instead, a custom cryptographic handshake is used to retrieve them at runtime.
 
-The app prioritizes **security** (via dynamic key injection), **performance** (smart caching), and **reliability** (offline-to-online cart synchronization).
+### 1.1. Dynamic Configuration Injection
 
----
+**Source:** `lib/api/client_helper.dart`
 
-## 2. Technical Stack
-
-### Core Framework
-
-* **Flutter & Dart:** Targeted for Android and iOS.
-* **State Management:** `Provider` (ChangeNotifier).
-* **Networking:** `http`, `dio`, and `socket_io_client`.
-
-### Backend & Data
-
-* **Commerce API:** Magento 2 REST API (OAuth 1.0a & Bearer Token).
-* **Security Middleware:** Custom Vercel Node.js server (`secuserv`) for key distribution.
-* **Local Storage:**
-* `shared_preferences`: Non-sensitive cache.
-* `flutter_secure_storage`: AES-encrypted token storage.
+* **Trigger:** The `fetchAndSetConfig()` function is awaited in `main.dart` before `runApp()` executes, ensuring no network calls fail due to missing keys.
+* **Handshake Protocol:**
+1. **Key Derivation:** A symmetric key is derived from the current date (`yyyyMMdd`), padded to 32 bytes to satisfy AES-256 requirements.
+2. **Encryption:** The app encrypts a static verification phrase (`BNB_SECURE_ACCESS`) using **AES-CBC** (Cipher Block Chaining) with a random 16-byte Initialization Vector (IV).
+3. **Header Construction:** The request includes a custom header `x-secure-date` formatted as `base64(IV):base64(Ciphertext)`.
+4. **Verification:** The Vercel middleware decrypts the header. If the phrase matches, it returns the `consumerKey`, `accessToken`, and `geminiApiKey`.
 
 
 
-### Cloud & Services
+### 1.2. Client-Side Data Protection
 
-* **Firebase:** Core, Analytics, and Cloud Messaging (FCM).
-* **Google Generative AI:** Gemini integration for AI assistance.
-* **Encryption:** `encrypt` package (AES-CBC) for secure middleware communication.
-
-### UI & UX
-
-* **Design System:** Material 3 (`useMaterial3: true`).
-* **Components:** `flutter_spinkit` (loaders), `shimmer` (skeletons), `cached_network_image`.
+* **Token Storage:** User authentication tokens (`customer_token`) are stored in `FlutterSecureStorage` (EncryptedSharedPreferences on Android / Keychain on iOS), not in plain text `SharedPreferences`.
+* **Email Privacy:** Transactional emails (OTPs, support tickets) are routed through the secure middleware (`/api/send-email`) rather than using a direct SMTP client, preventing the exposure of email server credentials on the client device.
 
 ---
 
-## 3. Architecture & Data Flow
+## 2. API & Networking Layer
 
-The application follows a **Layered Architecture** with a distinct "Secure Boot" phase.
+**Source:** `lib/api/magento_api.dart`
 
-### Key Workflows
+The `MagentoAPI` class acts as the central service layer, wrapping HTTP calls with OAuth 1.0a (via `MagentoOAuthClient`) and handling business logic.
 
-#### A. Secure Boot & Configuration
+### 2.1. "Smart" Search Algorithm
 
-Unlike standard apps that hardcode API keys, BNB uses a **Dynamic Configuration Injection** pattern:
+The search functionality implements a fallback strategy to maximize result relevance:
 
-1. **App Start:** `fetchAndSetConfig()` is called in `main.dart` before the UI renders.
-2. **Handshake:** The app generates a time-based AES-encrypted header (`x-secure-date`) using a pre-shared verification phrase.
-3. **Key Retrieval:** It requests configuration from the Vercel middleware.
-4. **Injection:** Critical keys (Magento Consumer Key, OAuth Tokens, Gemini API Key) are injected into the static `AppConfig` class in memory.
+1. **Strict Mode (AND Logic):**
+* Splits the query into individual words.
+* Creates separate **Filter Groups** for each word.
+* **Logic:** Magento requires *all* filter groups to be true. (e.g., "M6 Bolt" -> Product must contain "M6" AND "Bolt").
 
-#### B. The "Smart" Cart System
 
-1. **Guest Mode:** Items are stored locally in JSON.
-2. **Merge Logic:** Upon login, local "guest" items are merged into the server-side Magento cart.
-3. **Debouncing:** Local cart persistence is debounced (500ms) to reduce disk I/O.
+2. **Loose Mode (Fallback / OR Logic):**
+* Triggered only if Strict Mode returns 0 results.
+* Places all words into a **single Filter Group**.
+* **Logic:** Magento treats filters within a group as OR conditions. (e.g., "M6 Bolt" -> Product contains "M6" OR "Bolt").
+* *Constraint:* Both modes search against `name` and `sku` attributes.
 
-#### C. Notifications
 
-The app uses a "Sync-after-Login" strategy for push notifications:
 
-1. **Initialization:** Permissions are requested, and an FCM token is generated on startup.
-2. **Sync:** When a user logs in, the `syncTokenWithServer` method sends the FCM token to Magento, linking the device to the customer account.
+### 2.2. Advanced Caching & Warm-up
 
----
+To mitigate Magento's API latency, the app implements aggressive caching:
 
-## 4. Key Modules
+* **Attribute Filtering:** The app explicitly filters out over 20 backend-specific attributes (e.g., `tax_class_id`, `custom_design`) to reduce memory footprint.
+* **Warm-Up Routine:** The `warmUpHomeData()` method runs in the background on launch:
+1. Fetches the full Category Tree.
+2. Iterates through the top 5 categories.
+3. Pre-fetches the first 10 products for each category into memory (`categoryProductsCache`).
 
-### 4.1. Security Manager (`client_helper.dart`)
 
-This module handles the "Zero-Trust" configuration loading.
+* **Persistence:**
+* **Category Tree:** Serialized and saved to `SharedPreferences` (`cached_categories_data`).
+* **Product Data:** Cached items are saved to `cached_products_data` to allow offline product viewing on subsequent launches.
 
-* **Time-Based Authentication:** Generates a secure header where the encryption key is derived from the current date (`yyyyMMdd`).
-* **Header Format:** `IV:Ciphertext` (Base64 encoded).
-* **Secure Email:** Provides a method `sendSecureEmail` to route transactional emails (OTPs, support tickets) through the middleware to avoid exposing SMTP credentials on the client.
 
-### 4.2. Notification Manager (`firebase_api.dart`)
-
-Manages the lifecycle of push notifications.
-
-* **Background Handler:** A top-level `@pragma('vm:entry-point')` function handles messages when the app is terminated.
-* **Magento Integration:** Contains logic to register the device token with Magento's notification endpoint (`/rest/V1/notifications/register`).
-
-### 4.3. API Manager (`magento_api.dart`)
-
-The core engine for commerce operations.
-
-* **Dual-Strategy Search:** Implements "Strict" (AND) search with a fallback to "Loose" (OR) search if no results are found.
-* **RFQ Integration:** Supports a "Request for Quote" fallback system if live support fails or for bulk orders.
-* **Tier Pricing:** Parses complex B2B pricing structures from Magento.
 
 ---
 
-## 5. Security Protocols
+## 3. Cart & State Management
 
-### Dynamic Key Management
+**Source:** `lib/providers/cart_provider.dart`
 
-The app does **not** store sensitive API keys in `git` or the compiled binary.
+The `CartProvider` manages the complex state between the local device and the server.
 
-* **Mechanism:** Keys are fetched at runtime from `https://secuserv-7w95.vercel.app`.
-* **Protection:** The request requires a custom `x-secure-date` header.
-* **Encryption:** The header allows the server to verify the request originated from a valid app instance without exposing static secrets in simple text headers.
+### 3.1. Hybrid Cart System
 
-### Data Security
+* **Guest Mode:** Items are assigned a placeholder quote ID (`guest_local`) and stored in local JSON.
+* **Debounced Persistence:** To prevent disk thrashing, updates to the local cart are debounced. The `_saveLocalCart` function only executes after 500ms of inactivity.
 
-* **Token Storage:** Customer OAuth tokens are managed strictly by `flutter_secure_storage`.
-* **Email Privacy:** User emails are never sent directly via SMTP from the phone; they are routed via the secure middleware API (`/api/send-email`).
+### 3.2. Synchronization Logic (The Merge)
+
+When `fetchCart()` is called (e.g., after login):
+
+1. **Token Validation:** It attempts to fetch server items. If the server returns 401 (Unauthorized), the app automatically wipes local user data and reverts to Guest Mode.
+2. **Merge Process:**
+* It identifies local items with `quoteId == 'guest_local'`.
+* It iterates through them, calling `addToCart` on the server for each.
+* Finally, it re-fetches the server cart to ensure the local state mirrors the backend 1:1.
+
+
 
 ---
 
-## 6. Future Roadmap
+## 4. Feature Modules
 
-* **Offline Mode:** Enhance `CartProvider` to support full offline browsing (currently partially cached).
-* **Biometrics:** Integrate `local_auth` for login using the stored token in `flutter_secure_storage`.
-* **In-App Chat:** Expand the `socket_io_client` usage (currently a dependency) for real-time customer support.
+### 4.1. Push Notifications
+
+**Source:** `lib/api/firebase_api.dart`
+
+* **Architecture:** Uses a detached background handler (`_firebaseMessagingBackgroundHandler`) marked with `@pragma('vm:entry-point')` to ensure execution even when the app is terminated.
+* **Sync-After-Login:** The FCM token is not just generated but explicitly registered with Magento via `registerDeviceToken` whenever a user logs in. This links the device token to the specific Customer ID in Magento.
+
+### 4.2. Tier Pricing (B2B Feature)
+
+**Source:** `lib/models/magento_models.dart` & `lib/api/magento_api.dart`
+
+* **Parsing:** The `Product` model contains specific logic to parse the `tier_prices` array.
+* **Discrepancy Handling:** It handles Magento's API inconsistency where price is sometimes returned as `price` and other times as `value`.
+* **Display:** These parsed values allow the UI to show bulk quantity discounts (e.g., "Buy 10 for ₹50 each").
+
+### 4.3. Image Handling
+
+**Source:** `lib/models/magento_models.dart`
+
+* **Path Reconstruction:** Magento returns relative image paths (e.g., `/a/b/image.jpg`). The `Product` model detects this and prepends the full media URL (`https://buynutbolts.com/media/catalog/product`).
+* **Fallbacks:** If no image is defined in the `custom_attributes`, it defaults to a placeholder.
+
+---
+
+## 5. UI/UX Implementation Details
+
+**Source:** `lib/main.dart`
+
+* **Routing:** Uses a named route system (`/home`, `/cart`, etc.) defined in `MaterialApp`.
+* **Theme Engine:**
+* **Primary Color:** `#00599c` (Industrial Blue).
+* **Secondary Color:** `#F54336` (Alert Red).
+* **Design Standard:** Material 3 is explicitly enabled (`useMaterial3: true`).
+
+
+* **Route Guards:** The `onGenerateRoute` logic intercepts navigation to `/productDetail` and `/orderSuccess` to securely pass complex arguments (`Product` objects) that cannot be passed via standard string routes.
+
+---
+
+## 6. Request for Quote (RFQ) & AI Fallback
+
+**Source:** `lib/api/magento_api.dart`
+
+This module provides a safety net for failed interactions:
+
+* **Trigger:** If live support fails to initialize or a product is out of stock.
+* **Payload:** The app constructs a JSON payload containing the user's contact info and product interest.
+* **Endpoint:** Sends data to a separate microservice (`AppConfig.rfqUrl`), bypassing the main Magento order flow. This is tagged with `source: 'app_ai_assistant'` or `source: 'app_support_fallback'`, indicating future plans for AI-driven response handling.
