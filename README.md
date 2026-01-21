@@ -130,6 +130,5 @@ The app uses named routes for navigation:
 * **Android:**
 * `Internet`: For API access.
 * `Wake Lock`: To maintain processes during heavy syncs.
-
-nto Upgrades:** If the Magento backend upgrades, check `magento_api.dart` attribute exclusion lists (`_excludedAttributeCodes`), as backend attribute IDs may shift.
-* **AI Features:** The `google_generative_ai` package is installed. Future updates are expected to expand the "AI Assistant" features hinted at in the RFQ source code.
+  
+---
