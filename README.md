@@ -1,5 +1,3 @@
-Based on the code files provided, here is a comprehensive, professional technical documentation for the **BuyNutBolts (BNB)** mobile application.
-
 ---
 
 # BuyNutBolts (BNB) Mobile Application Documentation
@@ -125,8 +123,8 @@ The app uses named routes for navigation:
 ### Data Security
 
 * **Token Storage:** Access tokens are **never** stored in plain text `SharedPreferences`. They are strictly managed by `flutter_secure_storage`.
-* **Environment:** The app relies on an external configuration loader (`fetchAndSetConfig`) to retrieve sensitive API keys (Consumer Key/Secret) rather than hardcoding them in the binary.
-
+* **Environment:** The app relies on an external configuration loader (`fetchAndSetConfig`) to retrieve sensitive API keys (Consumer Key/Secret) from secuserve rather than hardcoding them in the binary.
+  
 ### Permissions
 
 * **Android:**
@@ -134,8 +132,6 @@ The app uses named routes for navigation:
 * `Wake Lock`: To maintain processes during heavy syncs.
 
 
-* **iOS:**
-* Configured in `Info.plist` (implied by `ios/Runner/Info.plist` presence).
 
 
 
@@ -146,28 +142,8 @@ The app uses named routes for navigation:
 ### Prerequisites
 
 * Flutter SDK `3.7.0` or higher.
-* CocoaPods (for iOS dependencies).
 * Android Studio / VS Code.
 
-### Setup Steps
-
-1. **Clone Repository:**
-```bash
-git clone [repository_url]
-
-```
-
-
-2. **Install Dependencies:**
-```bash
-flutter pub get
-
-```
-
-
-3. **Environment Config:**
-* Ensure `AppConfig` (in `client_helper.dart`) is configured with the correct Magento Base URL and OAuth credentials.
-* Place `google-services.json` (Android) and `GoogleService-Info.plist` (iOS) in their respective folders for Firebase to function.
 
 
 4. **Run Application:**
